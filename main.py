@@ -4,6 +4,12 @@ import os
 import logging
 import sys
 import pandas as pd
+import torch
+from torch.utils.data import TensorDataset, DataLoader
+import torch.nn as nn
+import torch.optim as optim
+import pickle
+from model.lstm import LSTM
 
 
 logging.basicConfig(level=logging.DEBUG,
@@ -27,6 +33,14 @@ if __name__ == '__main__':
     parser.add_argument('--window-size', type=int, default='5', help='Size of the windows')
     parser.add_argument('--window-type', type=str, default='id', choices=['id','time'], help="Build windows by id or time (window_size)")
     parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'], help='Group entries by sliding window or session')
+
+    ## Training
+    parser.add_argument('--seed', type=int, default='42', help='Seed')
+    parser.add_argument('--batch-size', type=int, default='64', help='Input batch size for training')
+    parser.add_argument('--input-size', type=int, default='1', help='Model input size')
+    parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
+    parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
+    parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
 
 
     args = parser.parse_args()
@@ -62,9 +76,86 @@ if __name__ == '__main__':
             # print(grouped_hdfs.columns)
             train_x, train_y = preprocessing.slice_hdfs(grouped_hdfs, args.grouping, args.window_size)
 
-            train_x_transformed, train_y_transformed = feature_extractor.fit_transform(train_x, train_y)
-            print(train_x_transformed[:20].to_string())
-            print(train_y_transformed[:20].to_string())
+            train_x_transformed, train_y_transformed, label_mapping = feature_extractor.fit_transform(train_x, train_y)
+
+            train_x_transformed.to_pickle(os.path.join(args.data_dir, 'x.pkl'))
+            train_y_transformed.to_pickle(os.path.join(args.data_dir, 'y.pkl'))
+
+            # Speichern des label_mapping in einer Pickle-Datei
+            label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
+            with open(label_mapping_path, 'wb') as f:
+                pickle.dump(label_mapping, f)
+
+            # print(train_x_transformed[:20].to_string())
+            # print(train_y_transformed[:20].to_string())
         elif args.dataset == 'postgres':
             pass
 
+    if args.train:
+        seed = 42
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            use_cuda = False
+            # set the seed for generating random numbers
+            torch.manual_seed(seed)
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+            torch.cuda.manual_seed(seed)
+
+        logger.info("Loading data")
+
+        train_x = pd.read_pickle(os.path.join(args.data_dir, 'x.pkl'))
+        train_y = pd.read_pickle(os.path.join(args.data_dir, 'y.pkl'))
+        with open(os.path.join(args.data_dir, 'label_mapping.pkl'), 'rb') as f:
+            label_mapping = pickle.load(f)
+
+        num_classes = len(label_mapping)
+
+        X = torch.tensor(train_x['window'].tolist(), dtype=torch.float)
+        Y = torch.tensor(train_y['next'].values)
+
+        dataset = TensorDataset(X, Y)
+        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, **kwargs)
+
+        model = LSTM(args.input_size, args.hidden_size, args.num_layers, num_classes).to(device)
+
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters())
+
+        logger.info("Starting training")
+        for epoch in range(args.epochs):
+            model.train()
+            train_loss = 0
+            for seq, label in dataloader:
+                seq = seq.clone().detach().view(-1, args.window_size, args.input_size).to(device)
+                optimizer.zero_grad()
+                output = model(seq)
+                loss = criterion(output, label.to(device))
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+            logger.debug('Epoch [{}/{}], Train_loss: {}'.format(
+                epoch, args.epochs, round(train_loss/len(dataloader.dataset), 4)
+            ))
+            # for x_batch, y_batch in dataloader:
+            #     x_batch = x_batch.to(device)
+            #     y_batch = y_batch.to(device)
+
+            #     # Vorwärtsdurchlauf
+            #     outputs = model(x_batch)
+            #     loss = criterion(outputs, y_batch)
+
+            #     # Rückwärtsdurchlauf und Optimierung
+            #     optimizer.zero_grad()
+            #     loss.backward()
+            #     optimizer.step()
+
+        # Ausgabe des Fortschritts
+        print(f'Epoch [{epoch+1}/{args.epochs}], Loss: {loss.item():.4f}')
+
+    # Optional: Speichern des trainierten Modells
+    # torch.save(model.state_dict(), os.path.join(args.model_dir, 'lstm_model.pth'))

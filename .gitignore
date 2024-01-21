@@ -4,6 +4,12 @@ data/postgres*
 __pycache__/
 *.py[cod]
 
+*.pkl
+*.pth
+
+*_structured.csv*
+*_templates.csv*
+
 # C extensions
 *.so
 
