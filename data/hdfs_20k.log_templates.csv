@@ -1,0 +1,13 @@
+EventId,EventTemplate,Occurrences
+6af214fd,Receiving block <*> src <*> <*> dest <*> 50010,5328
+26ae4ce0,BLOCK* NameSystem.allocateBlock <*>,1775
+dc2c74b7,PacketResponder <*> for block <*> terminating,4140
+fe505892,Received block <*> of size <*>,4147
+5eaa2a11,BLOCK* NameSystem.addStoredBlock blockMap updated <*> 50010 is added to <*> size <*>,4123
+2fd6cefe,<*> 50010 Transmitted block blk_-1608999687919862906 to <*> 50010,4
+dbe79f68,<*> 50010 Starting thread to transfer block blk_-1608999687919862906 to <*> 50010 <*> 50010,4
+f353aa2a,BLOCK* ask <*> 50010 to replicate blk_-1608999687919862906 to datanode(s) <*> 50010 <*> 50010,4
+3a7f0f8e,<*> 50010 Served block <*> to <*>,407
+32777b38,Verification succeeded for <*>,66
+f441c5d6,writeBlock blk_-3102267849859399193 received exception java.net.SocketTimeoutException,1
+88608495,PacketResponder blk_-3102267849859399193 2 Exception java.io.EOFException,1
