@@ -115,7 +115,6 @@ def slice_hdfs(df, grouping_type, window_size):
         print(df[:10])
     elif grouping_type == 'sliding':
         windows = []
-        print(df[:20].to_string())
         for index, row in df.iterrows():
             sequence = row['EventSequence']
             seqlen = len(sequence)
@@ -134,8 +133,6 @@ def slice_hdfs(df, grouping_type, window_size):
         sliced_windows = pd.DataFrame(windows, columns=['id', 'window', 'next'])
         train_x = sliced_windows[['id', 'window']]
         train_y = sliced_windows[['id', 'next']]
-        print(train_x[:20].to_string())
-        print(train_y[:20].to_string())
     return train_x, train_y
 
 class Vectorizer:
@@ -150,7 +147,8 @@ class Vectorizer:
                     self.label_mapping[event_id] = next_id_value
                     next_id_value += 1
 
-        return self.transform(x, y)
+        x_transformed, y_transformed = self.transform(x, y)
+        return x_transformed, y_transformed, self.label_mapping
 
     def transform(self, x, y):
         x_transformed = x.copy()
