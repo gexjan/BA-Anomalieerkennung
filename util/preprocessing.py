@@ -72,7 +72,8 @@ def postgres_to_singleline(log_dir, log_file, data_dir, logger):
     logger.info(f"Created file in {output_path}")
 
 
-def group_hdfs(df, anomaly_df, window_type):
+def group_hdfs(df, anomaly_df, window_type, logger):
+    logger.info("Grouping Log Files")
     if window_type == 'id':
         block_id_pattern = re.compile(r'(blk_-?\d+)')
 
@@ -110,7 +111,8 @@ def group_hdfs(df, anomaly_df, window_type):
         return grouped
     
 
-def slice_hdfs(df, grouping_type, window_size):
+def slice_hdfs(df, grouping_type, window_size, logger):
+    logger.info("Slicing windows")
     if grouping_type == 'session':
         print(df[:10])
     elif grouping_type == 'sliding':
