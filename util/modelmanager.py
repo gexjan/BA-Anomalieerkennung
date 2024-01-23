@@ -22,5 +22,5 @@ def load_model(model_dir, device):
     )
     model.load_state_dict(model_info['model_state_dict'])
     model.to(device)
-    model.eval()
+    # model.eval()
     return model

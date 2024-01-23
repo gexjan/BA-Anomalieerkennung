@@ -72,7 +72,7 @@ def postgres_to_singleline(log_dir, log_file, data_dir, logger):
     logger.info(f"Created file in {output_path}")
 
 
-def group_hdfs(df, anomaly_df, window_type, logger):
+def group_hdfs(df, anomaly_df, window_type, logger, remove_anomalies=True):
     logger.info("Grouping Log Files")
     if window_type == 'id':
         block_id_pattern = re.compile(r'(blk_-?\d+)')
@@ -85,14 +85,15 @@ def group_hdfs(df, anomaly_df, window_type, logger):
 
         grouped = grouped.reset_index()
         grouped.columns = ['BlockID', 'EventSequence']
-        
+
         # Zusammenführen der DataFrames anhand der Block-ID
         merged_df = pd.merge(grouped, anomaly_df, left_on='BlockID', right_on='BlockId', how='left')
         merged_df.drop(columns=['BlockId'], inplace=True)
-
+ 
         # Entfernen der anomalen Zeilen
-        normal_df = merged_df[merged_df['Label'] == 'Normal']
-        return normal_df
+        if remove_anomalies:
+            merged_df = merged_df[merged_df['Label'] == 'Normal']
+        return merged_df
 
     elif window_type == 'time':
         df['Date'] = df['Date'].astype(str)
@@ -161,3 +162,10 @@ class Vectorizer:
         y_transformed['next'] = y['next'].apply(lambda event_id: self.label_mapping.get(event_id, self.label_mapping['#OOV']))
 
         return x_transformed, y_transformed
+    
+    def transform_valid(self, x):
+        x_transformed = x.copy()
+        for index, row in x.iterrows():
+            x_transformed.at[index, 'EventSequence'] = [self.label_mapping.get(event_id, self.label_mapping['#OOV']) for event_id in row['EventSequence']]
+
+        return x_transformed

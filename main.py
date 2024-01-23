@@ -11,6 +11,8 @@ import torch.optim as optim
 import pickle
 from model.lstm import LSTM
 from util.training import DeeplogTrainer
+from util.predict import Predictor
+from util.validate import Validator
 
 
 logging.basicConfig(level=logging.DEBUG,
@@ -43,15 +45,18 @@ if __name__ == '__main__':
     parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
 
-
+    ## Validation
+    parser.add_argument('--validation-file', type=str, help='File to validate the model. Must contain normal and anormal entries.')
+    parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv', help='Contains the labels for the validation file')
+    parser.add_argument('--candidates', type=int, default=3, help=("Number of prediction candidates"))
     args = parser.parse_args()
 
     if args.prepare:
-        log_path = dataloader.load_log(args.log_dir, args.log_file)
+        # log_path = dataloader.load_log(args.log_dir, args.log_file)
 
         if args.dataset == 'hdfs':
             logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-            # logparser.parse(args.log_file)
+            logparser.parse(args.log_file)
 
         elif args.dataset == 'postgres':
             logger.info(f"Converting Log-File {args.log_file} to singleline")
@@ -63,15 +68,12 @@ if __name__ == '__main__':
 
         logger.info("Reading parsed files")
         structured_file = os.path.join(args.data_dir, args.log_file + '_structured.csv')
-        template_file = os.path.join(args.data_dir, args.log_file + '_templates.csv')
-
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
-        template_df = pd.read_csv(template_file)
 
 
         feature_extractor = preprocessing.Vectorizer()
         if args.dataset == 'hdfs':
-            anomaly_file_path = os.path.join(args.log_dir, 'anomaly_label.csv')
+            anomaly_file_path = os.path.join(args.log_dir, args.anomaly_file)
             anomaly_df = pd.read_csv(anomaly_file_path)
             grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, args.window_type, logger)
             # print("Grouped: ", grouped_hdfs[:10].to_string())
@@ -104,4 +106,37 @@ if __name__ == '__main__':
         trainer.train(data_loader)
 
     if args.predict:
-        pass
+        if args.validation_file and args.anomaly_file:
+            if args.dataset == 'hdfs':
+                anomaly_df = pd.read_csv(os.path.join(args.log_dir,args.anomaly_file))
+                logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
+                logparser.parse(args.validation_file)
+
+                structured_file = os.path.join(args.data_dir, args.validation_file + '_structured.csv')
+                structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
+
+                grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, args.window_type, logger, remove_anomalies=False)
+
+                label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
+                with open(label_mapping_path, 'rb') as f:
+                    label_mapping = pickle.load(f)
+                feature_extractor = preprocessing.Vectorizer()
+                feature_extractor.label_mapping = label_mapping
+
+                validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
+                # print(validate_x_transformed[:50].to_string())
+
+
+                validator = Validator(args)
+                results = validator.validate(validate_x_transformed)
+                print(results)
+                # predictor = Predictor(args)
+                # window = [2,2,2,3,4]
+                # predictions = predictor.predict_next(window)
+                # print(predictions)
+                # print(label_mapping)
+    
+
+            elif args.dataset == 'postgres':
+                pass
+                
