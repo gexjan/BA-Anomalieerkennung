@@ -4,13 +4,13 @@ import os
 import logging
 import pandas as pd
 import pickle
-from util.validate import Validator
 import torch
 from model.lstm import LSTM
-from util.modelmanager import save_model
+from util.modelmanager import save_model, load_model
 import random
 import numpy as np
 from util import training
+from util import evaluation
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
     parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'],
                         help='Choose the parser')
-    parser.add_argument('--window-size', type=int, default='5', help='Size of the windows')
+    parser.add_argument('--window-size', type=int, default='10', help='Size of the windows')
     parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'],
                         help='Group entries by sliding window or session')
 
@@ -63,12 +63,12 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
 
-    ## Validation
+    ## Evaluation
     parser.add_argument('--validation-file', type=str,
                         help='File to validate the model. Must contain normal and anormal entries.')
     parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
                         help='Contains the labels for the validation file')
-    parser.add_argument('--candidates', type=int, default=3, help=("Number of prediction candidates"))
+    parser.add_argument('--candidates', type=int, default=9, help=("Number of prediction candidates"))
     args = parser.parse_args()
 
     # Vorbereitung der Log-Dateien:
@@ -173,7 +173,18 @@ if __name__ == '__main__':
 
     if args.predict:
 
-        # Für die Evaluation wird eine Validierungs-Log-Datei und eine Datei mit den Labels für die Validierungsdatei benötigt
+        # Wenn kein CUDA verfügbar ist, soll mittels CPU trainiert werden
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        # Für die Evaluation wird eine Validierungs-Log-Datei und eine Datei mit den Labels für die Validierungsdatei
+        # benötigt
         if args.validation_file and args.anomaly_file:
 
             if args.dataset == 'hdfs':
@@ -182,7 +193,7 @@ if __name__ == '__main__':
 
                 # Parsen der Validierungs-Datei
                 logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-                # logparser.parse(args.validation_file)
+                logparser.parse(args.validation_file)
 
                 # Einlesen der beim Parsing erzeugten _structured.csv Datei
                 # Speichern in der variable structured_df. Die Spalten Date und Time haben den Datentyp str
@@ -194,7 +205,7 @@ if __name__ == '__main__':
                 # EventSequence ist eine Liste von EventIDs
                 # grouped_hdfs enthält auch anormale Einträge
                 grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
-                print(grouped_hdfs[:10].to_string())
+                # print(grouped_hdfs[:10].to_string())
 
                 # Einlesen und setzen des label_mappings im feature_extraktor
                 label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
@@ -206,13 +217,18 @@ if __name__ == '__main__':
                 # Umwandeln der EventIDs des Validierungsdatensatzes in numerische IDs
                 # Dazu wird das label_mapping aus dem Training verwendet
                 validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
-                print(validate_x_transformed[:10].to_string())
+                # print(validate_x_transformed[:10].to_string())
+
+                model = load_model(args.model_dir, device)
+                TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size)
+                print(evaluation.calculate_f1(TP, TN, FP, FN))
+
 
                 # Initialisieren des Validators
                 # Dieser überprüft das Modell mit den Validierungsdaten und errechnet diverse Metriken
-                validator = Validator(args, logger)
-                results = validator.validate(validate_x_transformed)
-                print(results)
+                # validator = Validator(args, logger)
+                # results = validator.validate(validate_x_transformed)
+                # print(results)
 
 
             elif args.dataset == 'postgres':
