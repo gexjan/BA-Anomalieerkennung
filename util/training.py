@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 import matplotlib.pyplot as plt
 
+
 class Trainer:
     def __init__(self, args, logger):
         self.args = args
@@ -28,36 +29,39 @@ class Trainer:
 
     def load_data(self):
         self.logger.info("Loading data")
-        self.train_x = pd.read_pickle(os.path.join(self.args.data_dir, "{}_x.pkl".format((self.args.log_file).replace('.log',''))))
-        self.train_y = pd.read_pickle(os.path.join(self.args.data_dir, "{}_y.pkl".format((self.args.log_file).replace('.log',''))))
+        self.train_x = pd.read_pickle(os.path.join(self.args.data_dir, "{}_x.pkl".format((self.args.log_file).replace('.log', ''))))
+        self.train_y = pd.read_pickle(os.path.join(self.args.data_dir, "{}_y.pkl".format((self.args.log_file).replace('.log', ''))))
         with open(os.path.join(self.args.data_dir, 'label_mapping.pkl'), 'rb') as f:
-            label_mapping = pickle.load(f)
+            self.label_mapping = pickle.load(f)
 
-        self.num_classes = len(label_mapping)
-
-        # print(self.train_x[:10].to_string())
+        self.num_classes = len(self.label_mapping)
 
     def create_dataloader(self):
         self.logger.info("Create Dataloader")
+
         X = torch.tensor(self.train_x['window'].tolist(), dtype=torch.float)
         Y = torch.tensor(self.train_y['next'].values)
 
         dataset = TensorDataset(X, Y)
         train_loader = DataLoader(dataset, batch_size=self.args.batch_size, shuffle=True, **self.kwargs)
+
         return train_loader
-    
+
 
 class DeeplogTrainer(Trainer):
     def train(self, train_loader):
         model = LSTM(self.args.input_size, self.args.hidden_size, self.args.num_layers, self.num_classes).to(self.device)
 
-        lr = 0.1
+        lr = 0.001
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model.parameters(), lr=lr)
-        self.logger.info("Starting DeepLog training")
-        log = 'Adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(str(self.args.batch_size), str(self.args.epochs), self.args.log_file, self.args.num_layers, self.args.hidden_size, self.args.window_size, lr)
-        writer = SummaryWriter(log_dir='log/' + log)
 
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+
+        self.logger.info("Starting DeepLog training")
+        log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
+            str(self.args.batch_size), str(self.args.epochs), self.args.log_file, self.args.num_layers,
+            self.args.hidden_size, self.args.window_size, lr)
+        writer = SummaryWriter(log_dir='log/' + log)
 
         total_step = len(train_loader)
         print("Steps: ", total_step)
@@ -81,7 +85,9 @@ class DeeplogTrainer(Trainer):
             end_time = time.time()
             epoch_duration = end_time - start_time
             writer.add_scalar('train_loss', train_loss / total_step, epoch + 1)
-            self.logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, self.args.epochs, train_loss / total_step, epoch_duration))
+            self.logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, self.args.epochs,
+                                                                                   train_loss / total_step,
+                                                                                   epoch_duration))
 
             # self.logger.debug('Epoch [{}/{}], DeepLog Train_loss: {:.4f}, Time: {:.2f} sec'.format(
             #     epoch + 1, self.args.epochs, train_loss / len(train_loader.dataset), epoch_duration))
@@ -90,6 +96,7 @@ class DeeplogTrainer(Trainer):
 
         writer.close()
 
-class AeTrainer(Trainer):
+
+class AutoencoderTrainer(Trainer):
     def train(self):
         pass

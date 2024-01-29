@@ -4,13 +4,14 @@ import os
 import logging
 import sys
 import pandas as pd
+from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
 import pickle
 from model.lstm import LSTM
-from util.training import DeeplogTrainer
+from util.training import DeeplogTrainer, AutoencoderTrainer
 from util.predict import Predictor
 from util.validate import Validator
 
@@ -19,6 +20,51 @@ logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
 logger = logging.getLogger(__name__)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
+
+# import pandas as pd
+# from sklearn.model_selection import train_test_split
+#
+# def prepare_data(df, train_size=0.05):
+#     # Aufteilen in Trainings- und Testdatensatz
+#     train_df, test_df = train_test_split(df, train_size=train_size, random_state=42)
+#
+#     # Schreiben der EventSequences des gesamten Trainingsdatensatzes in eine Datei
+#     # Entfernen anomaler Einträge aus dem Trainingsdatensatz für train_data.txt
+#     train_df_normal_only = train_df[train_df['Label'] == 'Normal']
+#     with open('train_data.txt', 'w') as f:
+#         for sequence in train_df_normal_only['EventSequence']:
+#             f.write(' '.join(map(str, sequence)) + '\n')
+#
+#     # Aufteilen des Trainingsdatensatzes in normale und anomale Einträge
+#     train_normal_df = train_df[train_df['Label'] == 'Normal']
+#     train_anomaly_df = train_df[train_df['Label'] == 'Anomaly']
+#
+#     # Schreiben der EventSequences der normalen Trainingsdaten in eine Datei
+#     with open('train_data_normal.txt', 'w') as f:
+#         for sequence in train_normal_df['EventSequence']:
+#             f.write(' '.join(map(str, sequence)) + '\n')
+#
+#     # Schreiben der EventSequences der anomalen Trainingsdaten in eine Datei
+#     with open('train_data_anomaly.txt', 'w') as f:
+#         for sequence in train_anomaly_df['EventSequence']:
+#             f.write(' '.join(map(str, sequence)) + '\n')
+#
+#     # Aufteilen des Testdatensatzes in normale und anomale Einträge
+#     test_normal_df = test_df[test_df['Label'] == 'Normal']
+#     test_anomaly_df = test_df[test_df['Label'] == 'Anomaly']
+#
+#     # Schreiben der EventSequences der normalen Testdaten in eine Datei
+#     with open('test_normal_data.txt', 'w') as f:
+#         for sequence in test_normal_df['EventSequence']:
+#             f.write(' '.join(map(str, sequence)) + '\n')
+#
+#     # Schreiben der EventSequences der anomalen Testdaten in eine Datei
+#     with open('test_anomaly_data.txt', 'w') as f:
+#         for sequence in test_anomaly_df['EventSequence']:
+#             f.write(' '.join(map(str, sequence)) + '\n')
+#
+#
+#
 
 
 if __name__ == '__main__':
@@ -64,23 +110,25 @@ if __name__ == '__main__':
 
             # logger.info("Parsing Log-File")
             logparser = preprocessing.PostgresLogParser(args.data_dir, args.data_dir, args.parser_type, logger)
-            logparser.parse(args.log_file)
+            # logparser.parse(args.log_file)
 
         logger.info("Reading parsed files")
         structured_file = os.path.join(args.data_dir, args.log_file + '_structured.csv')
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
 
-
         feature_extractor = preprocessing.Vectorizer()
+        
         if args.dataset == 'hdfs':
             anomaly_file_path = os.path.join(args.log_dir, args.anomaly_file)
             anomaly_df = pd.read_csv(anomaly_file_path)
             grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, args.window_type, logger)
-            # print("Grouped: ", grouped_hdfs[:10].to_string())
             # print(grouped_hdfs.columns)
             train_x, train_y = preprocessing.slice_hdfs(grouped_hdfs, args.grouping, args.window_size, logger)
 
             train_x_transformed, train_y_transformed, label_mapping = feature_extractor.fit_transform(train_x, train_y)
+
+            # export_data = feature_extractor.transform_valid(grouped_hdfs)
+            # prepare_data(export_data)
 
             train_x_transformed.to_pickle(os.path.join(args.data_dir, "{}_x.pkl".format((args.log_file).replace('.log',''))))
             train_y_transformed.to_pickle(os.path.join(args.data_dir, "{}_y.pkl".format((args.log_file).replace('.log',''))))
@@ -99,7 +147,7 @@ if __name__ == '__main__':
         if args.model == 'deeplog':
             trainer = DeeplogTrainer(args, logger)
         elif args.model == 'autoencoder':
-            pass
+            trainer = AutoencoderTrainer(args, logger)
 
         trainer.load_data()
         data_loader = trainer.create_dataloader()
@@ -124,18 +172,12 @@ if __name__ == '__main__':
                 feature_extractor.label_mapping = label_mapping
 
                 validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
-                # print(validate_x_transformed[:50].to_string())
+                # print(validate_x_transformed[:40].to_string())
 
-
-                validator = Validator(args)
+                validator = Validator(args, logger)
                 results = validator.validate(validate_x_transformed)
-                print(results)
-                # predictor = Predictor(args)
-                # window = [2,2,2,3,4]
-                # predictions = predictor.predict_next(window)
-                # print(predictions)
-                # print(label_mapping)
-    
+                # print(results)
+
 
             elif args.dataset == 'postgres':
                 pass

@@ -1,4 +1,3 @@
-# predictor.py
 import torch
 from model.lstm import LSTM
 from util.modelmanager import load_model
