@@ -2,6 +2,7 @@ import os
 import torch
 from model.lstm import LSTM
 
+# Speichern des Modells lstm_model.pth im Ordner model/
 def save_model(model, input_size, hidden_size, num_layers, num_classes, model_dir):
         model_info = {
             'model_state_dict': model.state_dict(),
@@ -12,6 +13,7 @@ def save_model(model, input_size, hidden_size, num_layers, num_classes, model_di
         }
         torch.save(model_info, os.path.join(model_dir, 'lstm_model.pth'))
 
+# Laden des Modells lstm_model.pth aus dem Ordner model/
 def load_model(model_dir, device):
     model_info = torch.load(os.path.join(model_dir, 'lstm_model.pth'), map_location=device)
     model = LSTM(
