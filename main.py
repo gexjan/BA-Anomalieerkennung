@@ -11,6 +11,7 @@ import random
 import numpy as np
 from util import training
 from util import evaluation
+import optuna
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
@@ -46,9 +47,12 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, default='./data/', help='The place where to store the data')
     parser.add_argument('--log-dir', type=str, default='./logs/', help='The folder with the log-files')
     parser.add_argument('--log-file', type=str, default='postgresql-01.log', help='The log used for training')
+
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
+    parser.add_argument('-hptuning', action='store_true', help='Hyperparameter tuning')
+
     parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'],
                         help='Choose the parser')
     parser.add_argument('--window-size', type=int, default='10', help='Size of the windows')
@@ -205,7 +209,6 @@ if __name__ == '__main__':
                 # EventSequence ist eine Liste von EventIDs
                 # grouped_hdfs enthält auch anormale Einträge
                 grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
-                # print(grouped_hdfs[:10].to_string())
 
                 # Einlesen und setzen des label_mappings im feature_extraktor
                 label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
@@ -233,3 +236,43 @@ if __name__ == '__main__':
 
             elif args.dataset == 'postgres':
                 pass
+
+    if args.hptuning:
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+
+        def objective(trial, device, train_loader, logger, x_validate):
+            num_layers = trial.suggest_int('num_layers', 1, 3)
+            hidden_size = trial.suggest_int('hidden_size', 20, 200)
+            learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
+            candidates = trial.suggest_int('candidates', 3, 15)
+
+            input_size = 1
+            epochs = 150
+            window_size = 10
+            batch_size = 2048
+
+
+            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
+                str(batch_size), str(epochs), args.log_file, args.num_layers,
+                hidden_size, window_size, learning_rate)
+            trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
+                                           input_size)
+
+            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size)
+
+            return evaluation.calculate_f1(TP, TN, FP, FN)
+
+        # Starte Optuna Studie
+        study = optuna.create_study(direction='maximize')
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=15)
+
+        print('Beste Hyperparameter:', study.best_params)
