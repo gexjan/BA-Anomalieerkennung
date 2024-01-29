@@ -1,7 +1,27 @@
 import torch
 from model.lstm import LSTM
 from util.modelmanager import load_model
+import random
+import numpy as np
 
+# Seed-Wert festlegen
+seed_value = 42
+
+# PyTorch Seed setzen
+torch.manual_seed(seed_value)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed_value)
+    torch.cuda.manual_seed_all(seed_value)  # für multi-GPU
+
+# NumPy Seed setzen
+np.random.seed(seed_value)
+
+# Python Random Seed setzen
+random.seed(seed_value)
+
+# Zusätzliche Konfigurationen für PyTorch, um weitere Zufälligkeiten zu minimieren
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 class Predictor:
     def __init__(self, args):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
