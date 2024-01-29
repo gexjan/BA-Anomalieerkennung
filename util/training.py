@@ -9,7 +9,26 @@ from model.lstm import LSTM
 from util.modelmanager import save_model
 from torch.utils.tensorboard import SummaryWriter
 import time
+import random
+import numpy as np
 
+# Seed-Wert festlegen
+seed_value = 42
+
+# PyTorch Seed setzen
+torch.manual_seed(seed_value)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed_value)
+
+# NumPy Seed setzen
+np.random.seed(seed_value)
+
+# Python Random Seed setzen
+random.seed(seed_value)
+
+# Zusätzliche Konfigurationen für PyTorch, um weitere Zufälligkeiten zu minimieren
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 class Trainer:
     def __init__(self, args, logger):
@@ -19,14 +38,12 @@ class Trainer:
         # Wenn kein CUDA verfügbar ist, soll mittels CPU trainiert werden
         if not torch.cuda.is_available():
             self.logger.warning("No CUDA available")
-            torch.manual_seed(args.seed)
             self.kwargs = {}
             self.device = torch.device("cpu")
         else:
             self.kwargs = {'num_workers': 1, 'pin_memory': True}
             self.device = torch.device("cuda")
             self.logger.info('Using CUDA')
-            torch.cuda.manual_seed(args.seed)
 
     # Laden der Trainingsdaten aus Pickle-Dateien
     def load_data(self):

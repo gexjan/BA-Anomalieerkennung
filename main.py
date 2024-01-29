@@ -30,7 +30,6 @@ if __name__ == '__main__':
     parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'], help='Group entries by sliding window or session')
 
     ## Training
-    parser.add_argument('--seed', type=int, default='42', help='Seed')
     parser.add_argument('--batch-size', type=int, default='64', help='Input batch size for training')
     parser.add_argument('--input-size', type=int, default='1', help='Model input size')
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
