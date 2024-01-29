@@ -4,30 +4,56 @@ import os
 import logging
 import pandas as pd
 import pickle
-from util.training import DeeplogTrainer, AutoencoderTrainer
 from util.validate import Validator
-
+import torch
+from model.lstm import LSTM
+from util.modelmanager import save_model
+import random
+import numpy as np
+from util import training
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
 logger = logging.getLogger(__name__)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
 
+# Seed-Wert festlegen
+seed_value = 42
+
+# PyTorch Seed setzen
+torch.manual_seed(seed_value)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed_value)
+
+# NumPy Seed setzen
+np.random.seed(seed_value)
+
+# Python Random Seed setzen
+random.seed(seed_value)
+
+# Zusätzliche Konfigurationen für PyTorch, um weitere Zufälligkeiten zu minimieren
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='postgres', choices=['hdfs', 'postgres'] , help='Choose the Dataset')
-    parser.add_argument('--model', type=str, default='deeplog', choices=['deeplog', 'autoencoder'], help='Choose the model')
-    parser.add_argument('--model-dir', type=str, default='./model/', help='The place where to store the model parameter')
+    parser.add_argument('--dataset', type=str, default='postgres', choices=['hdfs', 'postgres'],
+                        help='Choose the Dataset')
+    parser.add_argument('--model', type=str, default='deeplog', choices=['deeplog', 'autoencoder'],
+                        help='Choose the model')
+    parser.add_argument('--model-dir', type=str, default='./model/',
+                        help='The place where to store the model parameter')
     parser.add_argument('--data-dir', type=str, default='./data/', help='The place where to store the data')
     parser.add_argument('--log-dir', type=str, default='./logs/', help='The folder with the log-files')
     parser.add_argument('--log-file', type=str, default='postgresql-01.log', help='The log used for training')
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
-    parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'] , help='Choose the parser')
+    parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'],
+                        help='Choose the parser')
     parser.add_argument('--window-size', type=int, default='5', help='Size of the windows')
-    parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'], help='Group entries by sliding window or session')
+    parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'],
+                        help='Group entries by sliding window or session')
 
     ## Training
     parser.add_argument('--batch-size', type=int, default='64', help='Input batch size for training')
@@ -35,10 +61,13 @@ if __name__ == '__main__':
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
     parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
+    parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
 
     ## Validation
-    parser.add_argument('--validation-file', type=str, help='File to validate the model. Must contain normal and anormal entries.')
-    parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv', help='Contains the labels for the validation file')
+    parser.add_argument('--validation-file', type=str,
+                        help='File to validate the model. Must contain normal and anormal entries.')
+    parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
+                        help='Contains the labels for the validation file')
     parser.add_argument('--candidates', type=int, default=3, help=("Number of prediction candidates"))
     args = parser.parse_args()
 
@@ -71,7 +100,6 @@ if __name__ == '__main__':
         structured_file = os.path.join(args.data_dir, args.log_file + '_structured.csv')
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
 
-
         if args.dataset == 'hdfs':
             # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
             anomaly_file_path = os.path.join(args.log_dir, args.anomaly_file)
@@ -92,8 +120,10 @@ if __name__ == '__main__':
             train_x_transformed, train_y_transformed, label_mapping = feature_extractor.fit_transform(train_x, train_y)
 
             # Speichern der erzeugten Trainingsdaten
-            train_x_transformed.to_pickle(os.path.join(args.data_dir, "{}_x.pkl".format((args.log_file).replace('.log',''))))
-            train_y_transformed.to_pickle(os.path.join(args.data_dir, "{}_y.pkl".format((args.log_file).replace('.log',''))))
+            train_x_transformed.to_pickle(
+                os.path.join(args.data_dir, "{}_x.pkl".format((args.log_file).replace('.log', ''))))
+            train_y_transformed.to_pickle(
+                os.path.join(args.data_dir, "{}_y.pkl".format((args.log_file).replace('.log', ''))))
 
             # Speichern des label_mapping in einer Pickle-Datei
             label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
@@ -104,20 +134,42 @@ if __name__ == '__main__':
             pass
 
     if args.train:
-        # Erzeugen eines Trainers
+
+        # Wenn kein CUDA verfügbar ist, soll mittels CPU trainiert werden
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        logger.info("Loading Data")
+        train_x, train_y, label_mapping = training.load_data(args.data_dir, args.log_file)
+
+        num_classes = len(label_mapping)
+
+        logger.info("Create Dataloader")
+        train_loader = training.get_dataloader(train_x, train_y, args.batch_size, kwargs)
+
         if args.model == 'deeplog':
-            trainer = DeeplogTrainer(args, logger)
-        elif args.model == 'autoencoder':
-            trainer = AutoencoderTrainer(args, logger)
+            input_size = args.input_size
+            hidden_size = args.hidden_size
+            num_layers = args.num_layers
+            learning_rate = args.learning_rate
+            epochs = args.epochs
+            window_size = args.window_size
+            batch_size = args.batch_size
 
-        # Einlesen der Trainingsdaten X, Y und des label_mappings
-        trainer.load_data()
+            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
+                str(batch_size), str(epochs), args.log_file, args.num_layers,
+                hidden_size, window_size, learning_rate)
+            trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
+                                          input_size)
 
-        # Erstellen eines DataLoaders zur Dateneinspeisung in das Model
-        data_loader = trainer.create_dataloader()
-
-        # Trainieren des Modells
-        trainer.train(data_loader)
+            save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.model_dir)
 
     if args.predict:
 
@@ -126,11 +178,11 @@ if __name__ == '__main__':
 
             if args.dataset == 'hdfs':
                 # Einlesen der Labels in anomaly_df
-                anomaly_df = pd.read_csv(os.path.join(args.log_dir,args.anomaly_file))
+                anomaly_df = pd.read_csv(os.path.join(args.log_dir, args.anomaly_file))
 
                 # Parsen der Validierungs-Datei
                 logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-                logparser.parse(args.validation_file)
+                # logparser.parse(args.validation_file)
 
                 # Einlesen der beim Parsing erzeugten _structured.csv Datei
                 # Speichern in der variable structured_df. Die Spalten Date und Time haben den Datentyp str
@@ -142,6 +194,7 @@ if __name__ == '__main__':
                 # EventSequence ist eine Liste von EventIDs
                 # grouped_hdfs enthält auch anormale Einträge
                 grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
+                print(grouped_hdfs[:10].to_string())
 
                 # Einlesen und setzen des label_mappings im feature_extraktor
                 label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
@@ -153,6 +206,7 @@ if __name__ == '__main__':
                 # Umwandeln der EventIDs des Validierungsdatensatzes in numerische IDs
                 # Dazu wird das label_mapping aus dem Training verwendet
                 validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
+                print(validate_x_transformed[:10].to_string())
 
                 # Initialisieren des Validators
                 # Dieser überprüft das Modell mit den Validierungsdaten und errechnet diverse Metriken
@@ -163,4 +217,3 @@ if __name__ == '__main__':
 
             elif args.dataset == 'postgres':
                 pass
-                
