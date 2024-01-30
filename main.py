@@ -12,6 +12,8 @@ import numpy as np
 from util import training
 from util import evaluation
 import optuna
+import sys
+
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
@@ -38,15 +40,15 @@ torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='postgres', choices=['hdfs', 'postgres'],
+    parser.add_argument('--dataset', type=str, default='hdfs', choices=['hdfs', 'postgres'],
                         help='Choose the Dataset')
     parser.add_argument('--model', type=str, default='deeplog', choices=['deeplog', 'autoencoder'],
                         help='Choose the model')
     parser.add_argument('--model-dir', type=str, default='./model/',
                         help='The place where to store the model parameter')
     parser.add_argument('--data-dir', type=str, default='./data/', help='The place where to store the data')
-    parser.add_argument('--log-dir', type=str, default='./logs/', help='The folder with the log-files')
-    parser.add_argument('--log-file', type=str, default='postgresql-01.log', help='The log used for training')
+    parser.add_argument('--log-dir', type=str, default='./logs/HDFS', help='The folder with the log-files')
+    parser.add_argument('--log-file', type=str, default='hdfs_train.log', help='The log used for training')
 
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
@@ -60,15 +62,15 @@ if __name__ == '__main__':
                         help='Group entries by sliding window or session')
 
     ## Training
-    parser.add_argument('--batch-size', type=int, default='64', help='Input batch size for training')
+    parser.add_argument('--batch-size', type=int, default='2048', help='Input batch size for training')
     parser.add_argument('--input-size', type=int, default='1', help='Model input size')
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
-    parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
+    parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
 
     ## Evaluation
-    parser.add_argument('--validation-file', type=str,
+    parser.add_argument('--validation-file', type=str, default='hdfs_test.log',
                         help='File to validate the model. Must contain normal and anormal entries.')
     parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
                         help='Contains the labels for the validation file')
@@ -103,6 +105,7 @@ if __name__ == '__main__':
         logger.info("Reading parsed files")
         structured_file = os.path.join(args.data_dir, args.log_file + '_structured.csv')
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
+        print("Path structured: ", structured_file)
 
         if args.dataset == 'hdfs':
             # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
@@ -112,7 +115,7 @@ if __name__ == '__main__':
             # Gruppieren der Einträge nach der Block-ID
             # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
             # EventSequence ist eine Liste von EventIDs
-            grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger)
+            grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
 
             # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
             # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
@@ -124,12 +127,13 @@ if __name__ == '__main__':
             # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
             feature_extractor = preprocessing.Vectorizer(logger)
             train_x_transformed, train_y_transformed, label_mapping = feature_extractor.fit_transform(train_x, train_y)
+            print("Label-Mapping: ", label_mapping)
 
             #### Validierung anderer Lösung
-            # all_data = feature_extractor.transform_valid(grouped_hdfs)
-            # with open('hdfs_train', 'w') as f:
-            #     for sequence in all_data['EventSequence']:
-            #         f.write(' '.join(map(str, sequence)) + '\n')
+            all_data = feature_extractor.transform_valid(grouped_hdfs)
+            with open('hdfs_train', 'w') as f:
+                for sequence in all_data['EventSequence']:
+                    f.write(' '.join(map(str, sequence)) + '\n')
 
             # Speichern der erzeugten Trainingsdaten
             logger.info("Saving traing data")
@@ -162,6 +166,7 @@ if __name__ == '__main__':
         train_x, train_y, label_mapping = training.load_data(args.data_dir, args.log_file)
 
         num_classes = len(label_mapping)
+        print("Label-Mapping: ", label_mapping)
 
         logger.info("Create Dataloader")
         train_loader = training.get_dataloader(train_x, train_y, args.batch_size, kwargs)
@@ -245,8 +250,8 @@ if __name__ == '__main__':
                         f.write(' '.join(map(str, sequence)) + '\n')
 
                 model = load_model(args.model_dir, device)
-                TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size)
-                print(evaluation.calculate_f1(TP, TN, FP, FN))
+                TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size, logger)
+                print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
 
 
             elif args.dataset == 'postgres':
@@ -267,13 +272,13 @@ if __name__ == '__main__':
             num_layers = trial.suggest_int('num_layers', 1, 2)
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
-            candidates = trial.suggest_int('candidates', 3, 15)
+            # Es kann nicht mehr Kandidaten als Klassen geben
+            candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
 
             input_size = 1
-            epochs = 50
+            epochs = 5
             window_size = 10
             batch_size = 2048
-
 
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
             log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
@@ -282,12 +287,36 @@ if __name__ == '__main__':
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
                                            input_size)
 
-            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, candidates, window_size, input_size)
+            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, candidates, window_size, input_size, logger)
 
-            return evaluation.calculate_f1(TP, TN, FP, FN)
+            return evaluation.calculate_f1(TP, TN, FP, FN, logger)
+
+        logger.info("Loading Data")
+        train_x, train_y, label_mapping = training.load_data(args.data_dir, args.log_file)
+
+        num_classes = len(label_mapping)
+
+        logger.info("Create Dataloader")
+        train_loader = training.get_dataloader(train_x, train_y, args.batch_size, kwargs)
+
+        anomaly_df = pd.read_csv(os.path.join(args.log_dir, args.anomaly_file))
+
+        structured_file = os.path.join(args.data_dir, args.validation_file + '_structured.csv')
+        structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
+
+        grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
+
+        # Einlesen und setzen des label_mappings im feature_extraktor
+        label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
+        with open(label_mapping_path, 'rb') as f:
+            label_mapping = pickle.load(f)
+        feature_extractor = preprocessing.Vectorizer(logger)
+        feature_extractor.label_mapping = label_mapping
+
+        validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=8)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=20)
 
         print('Beste Hyperparameter:', study.best_params)

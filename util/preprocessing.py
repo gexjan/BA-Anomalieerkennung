@@ -39,7 +39,6 @@ class PostgresLogParser(Parser):
         log_format = '<Date> <Time> <Timeformat> <PID> <Content>'
 
         # Parameter für Spell
-
         tau = 0.5
 
         # Parameter für Drain
@@ -54,10 +53,10 @@ class PostgresLogParser(Parser):
 class HDFSLogParser(Parser):
     def __init__(self, indir, outdir, parser_type, logger):
         log_format = '<Date> <Time> <Pid> <Level> <Component>: <Content>'  # HDFS log format
-        tau = 0.5  # Angenommener Wert für HDFS
+        tau = 0.7  # Angenommener Wert für HDFS
         st = 0.5
         depth = 4
-        rex = []
+        rex = [r"blk_-?\d+", r"(\d+\.){3}\d+(:\d+)?"]
         super().__init__(indir, outdir, log_format, rex, parser_type, tau, st, depth, logger)
 
 

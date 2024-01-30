@@ -1,14 +1,19 @@
 import torch
+from tqdm import tqdm
 
 
-def evaluate(evaluation_df, model, device, candidates, window_size, input_size):
+def evaluate(evaluation_df, model, device, candidates, window_size, input_size, logger):
+    logger.info(f"Begin evaluation with {candidates} candidates")
     TP, TN, FP, FN = 0, 0, 0, 0
+
     model.eval()
 
     with torch.no_grad():
-        for _, row in evaluation_df.iterrows():
-            sequence = row['EventSequence']
-            label = row['Label'] == 'Anomaly'
+        # for index, row in evaluation_df.iterrows():
+        for index, row in enumerate(tqdm(evaluation_df.iterrows(), total=evaluation_df.shape[0], desc="Evaluating", leave=False)):
+
+            sequence = row[1]['EventSequence']
+            label = row[1]['Label'] == 'Anomaly'
 
             anomaly_detected = False
 
@@ -48,10 +53,10 @@ def evaluate(evaluation_df, model, device, candidates, window_size, input_size):
     return TP, TN, FP, FN
 
 
-def calculate_f1(TP, TN, FP, FN):
+def calculate_f1(TP, TN, FP, FN, logger):
     precision = TP / (TP + FP) if (TP + FP) > 0 else 0
     recall = TP / (TP + FN) if (TP + FN) > 0 else 0
     f1 = (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
 
-    print(f"TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}")
+    logger.info(f" Evaluation results - TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}")
     return f1

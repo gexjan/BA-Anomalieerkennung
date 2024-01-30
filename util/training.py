@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.optim as optiom
 from torch.utils.tensorboard import SummaryWriter
 import time
+import sys
+from tqdm import tqdm
 
 
 def load_data(data_dir, log_file):
@@ -32,7 +34,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
 
     optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
 
-    logger.info("Starting DeepLog training")
+    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}")
     writer = SummaryWriter(log_dir='log/' + log)
 
     total_step = len(train_loader)
@@ -50,7 +52,8 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
         start_time = time.time()
 
         # Iteration über alle Bachtes im Dataloader
-        for step, (seq, label) in enumerate(train_loader):
+        # for step, (seq, label) in enumerate(train_loader):
+        for step, (seq, label) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False)):
             ### Forward pass: Berechnung der Modellvorhersagen
             # Die Eingabesequenz wird zunächst geklont, von früheren Berechnungen losgelöst, in die richtige Form gebracht
             # und dann auf das richtige Gerät (CPU oder GPU) verschoben
@@ -81,9 +84,8 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
         end_time = time.time()
         epoch_duration = end_time - start_time
         writer.add_scalar('train_loss', train_loss / total_step, epoch + 1)
-        logger.debug(
-            'Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,
-                                                                 epoch_duration))
+        # logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
+    logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
     writer.close()
     return model
