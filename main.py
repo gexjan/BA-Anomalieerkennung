@@ -276,7 +276,7 @@ if __name__ == '__main__':
             candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
 
             input_size = 1
-            epochs = 5
+            epochs = 120
             window_size = 10
             batch_size = 2048
 
@@ -287,7 +287,13 @@ if __name__ == '__main__':
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
                                            input_size)
 
-            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, candidates, window_size, input_size, logger)
+            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, trained_model, device, candidates, window_size, input_size, logger)
+
+            # Löschen des Modells und Freigeben des Speichers
+            del model
+            del trained_model
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
 
             return evaluation.calculate_f1(TP, TN, FP, FN, logger)
 
@@ -317,6 +323,6 @@ if __name__ == '__main__':
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=20)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=10, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
