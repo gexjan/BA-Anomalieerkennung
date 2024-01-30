@@ -116,14 +116,23 @@ if __name__ == '__main__':
 
             # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
             # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
-            train_x, train_y = preprocessing.slice_hdfs(grouped_hdfs, args.grouping, args.window_size, logger)
+            # train_x, train_y = preprocessing.slice_hdfs(grouped_hdfs, args.grouping, args.window_size, logger)
+            num_processes = 12
+            train_x, train_y = preprocessing.slice_hdfs_parallel(grouped_hdfs, args.grouping, args.window_size, num_processes, logger)
 
             # Umwandeln von EventIDs zu numerischen IDs
             # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
-            feature_extractor = preprocessing.Vectorizer()
+            feature_extractor = preprocessing.Vectorizer(logger)
             train_x_transformed, train_y_transformed, label_mapping = feature_extractor.fit_transform(train_x, train_y)
 
+            #### Validierung anderer Lösung
+            # all_data = feature_extractor.transform_valid(grouped_hdfs)
+            # with open('hdfs_train', 'w') as f:
+            #     for sequence in all_data['EventSequence']:
+            #         f.write(' '.join(map(str, sequence)) + '\n')
+
             # Speichern der erzeugten Trainingsdaten
+            logger.info("Saving traing data")
             train_x_transformed.to_pickle(
                 os.path.join(args.data_dir, "{}_x.pkl".format((args.log_file).replace('.log', ''))))
             train_y_transformed.to_pickle(
@@ -214,24 +223,30 @@ if __name__ == '__main__':
                 label_mapping_path = os.path.join(args.data_dir, 'label_mapping.pkl')
                 with open(label_mapping_path, 'rb') as f:
                     label_mapping = pickle.load(f)
-                feature_extractor = preprocessing.Vectorizer()
+                feature_extractor = preprocessing.Vectorizer(logger)
                 feature_extractor.label_mapping = label_mapping
 
                 # Umwandeln der EventIDs des Validierungsdatensatzes in numerische IDs
                 # Dazu wird das label_mapping aus dem Training verwendet
                 validate_x_transformed = feature_extractor.transform_valid(grouped_hdfs)
-                # print(validate_x_transformed[:10].to_string())
+
+                test_normal = grouped_hdfs[grouped_hdfs['Label'] == 'Normal']
+                test_abnormal = grouped_hdfs[grouped_hdfs['Label'] == 'Anomaly']
+
+                hdfs_test_normal = feature_extractor.transform_valid(test_normal)
+                hdfs_test_abnormal = feature_extractor.transform_valid(test_abnormal)
+
+                with open('hdfs_test_normal', 'w') as f:
+                    for sequence in hdfs_test_normal['EventSequence']:
+                        f.write(' '.join(map(str, sequence)) + '\n')
+
+                with open('hdfs_test_abnormal', 'w') as f:
+                    for sequence in hdfs_test_abnormal['EventSequence']:
+                        f.write(' '.join(map(str, sequence)) + '\n')
 
                 model = load_model(args.model_dir, device)
                 TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size)
                 print(evaluation.calculate_f1(TP, TN, FP, FN))
-
-
-                # Initialisieren des Validators
-                # Dieser überprüft das Modell mit den Validierungsdaten und errechnet diverse Metriken
-                # validator = Validator(args, logger)
-                # results = validator.validate(validate_x_transformed)
-                # print(results)
 
 
             elif args.dataset == 'postgres':
@@ -255,7 +270,7 @@ if __name__ == '__main__':
             candidates = trial.suggest_int('candidates', 3, 15)
 
             input_size = 1
-            epochs = 150
+            epochs = 50
             window_size = 10
             batch_size = 2048
 
@@ -273,6 +288,6 @@ if __name__ == '__main__':
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=15)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=8)
 
         print('Beste Hyperparameter:', study.best_params)

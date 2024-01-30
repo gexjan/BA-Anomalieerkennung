@@ -3,6 +3,7 @@ from logparser.Drain import LogParser as DrainParser
 import os
 import re
 import pandas as pd
+from multiprocessing import Pool
 
 
 # Basisklasse für das Parsen von Log-Dateien
@@ -155,12 +156,50 @@ def slice_hdfs(df, grouping_type, window_size, logger):
             train_y = sliced_windows[['id', 'next']]
     return train_x, train_y
 
+def process_slice(data):
+    index, row, window_size = data
+    sequence = row['EventSequence']
+    seqlen = len(sequence)
+    windows = []
+    i = 0
+    while (i + window_size) < seqlen:
+        window_slice = sequence[i: i + window_size]
+        next_element = sequence[i + window_size]
+        windows.append([index, window_slice, next_element])
+        i += 1
+    return windows
+
+def slice_hdfs_parallel(df, grouping_type, window_size, num_processes, logger):
+    logger.info("Slicing windows")
+    if grouping_type == 'session':
+        # Code für 'session' bleibt unverändert
+        pass
+
+    elif grouping_type == 'sliding':
+        # Aufteilen der Daten für die Parallelverarbeitung
+        data_splits = [(index, row, window_size) for index, row in df.iterrows()]
+
+        # Erstellen eines Pools von Arbeitern
+        with Pool(num_processes) as pool:
+            results = pool.map(process_slice, data_splits)
+
+        # Zusammenführen der Ergebnisse
+        windows = [item for sublist in results for item in sublist]
+        sliced_windows = pd.DataFrame(windows, columns=['id', 'window', 'next'])
+        train_x = sliced_windows[['id', 'window']]
+        train_y = sliced_windows[['id', 'next']]
+
+    return train_x, train_y
+
 
 # Mit dem Vectorizer werden EventIDs in numerische IDs umgewandelt
 class Vectorizer:
+    def __init__(self, logging):
+        self.logging = logging
 
-    # Label_Mapping mit allen einzigartig vorkommenden EventIDs und #OOV und #PAD erstellen
+    # Label_Mapping mit allen einzigartig vorkommenden EventIDs und #OOV und #PAD zu erstellen
     def fit_transform(self, x, y):
+        self.logging.info("Fitting vectorizer")
         self.label_mapping = {'#OOV': 0, '#PAD': 1}
         next_id_value = 2
 
@@ -176,6 +215,7 @@ class Vectorizer:
 
     # Ersetzen der EventIDs mithilfe des label_mappings
     def transform(self, x, y):
+        self.logging.info("Transforming vectorizer")
         x_transformed = x.copy()
         for index, row in x.iterrows():
             x_transformed.at[index, 'window'] = [self.label_mapping.get(event_id, self.label_mapping['#OOV']) for
@@ -190,6 +230,7 @@ class Vectorizer:
     # Bei der Validierung gibt es keine seperaten X und Y Datensätze, sondern nur einen X-Datensatz
     # In diesem werden die EventIDs ersetzt
     def transform_valid(self, x):
+        self.logging.info("Transforming vectorizer")
         x_transformed = x.copy()
         for index, row in x.iterrows():
             x_transformed.at[index, 'EventSequence'] = [self.label_mapping.get(event_id, self.label_mapping['#OOV']) for

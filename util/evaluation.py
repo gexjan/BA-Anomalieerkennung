@@ -53,5 +53,5 @@ def calculate_f1(TP, TN, FP, FN):
     recall = TP / (TP + FN) if (TP + FN) > 0 else 0
     f1 = (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
 
-    # return f"TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}"
+    print(f"TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}")
     return f1
