@@ -7,7 +7,7 @@ import re
 
 
 log_dir = '../logs/HDFS/'
-log_file = 'hdfs_1m.log'
+log_file = 'HDFS.log'
 data_dir = '../data/'
 anomaly_file = 'anomaly_label.csv'
 
@@ -31,7 +31,7 @@ block_ids = list(block_id_groups.keys())
 block_group_data = [block_id_groups[id] for id in block_ids]
 
 
-train_data, test_data = train_test_split(block_group_data, test_size=0.90, random_state=42)
+train_data, test_data = train_test_split(block_group_data, test_size=0.99, random_state=42)
 
 max_length_train = max(len(group) for group in train_data)
 max_length_test = max(len(group) for group in test_data)

@@ -13,9 +13,12 @@ from util import training
 from util import evaluation
 import optuna
 import sys
+import optuna.visualization as vis
+import matplotlib.pyplot as plt
+import plotly.io as pio
 
 
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
 logger = logging.getLogger(__name__)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
@@ -211,7 +214,7 @@ if __name__ == '__main__':
 
                 # Parsen der Validierungs-Datei
                 logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-                # logparser.parse(args.validation_file)
+                logparser.parse(args.validation_file)
 
                 # Einlesen der beim Parsing erzeugten _structured.csv Datei
                 # Speichern in der variable structured_df. Die Spalten Date und Time haben den Datentyp str
@@ -269,17 +272,17 @@ if __name__ == '__main__':
 
 
         def objective(trial, device, train_loader, logger, x_validate):
-            num_layers = trial.suggest_int('num_layers', 1, 2)
+            num_layers = trial.suggest_int('num_layers', 1, 3)
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
             candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
+            batch_size = trial.suggest_int('batch_size', 64, 4096)
 
             input_size = 1
-            epochs = 120
+            epochs = 150
             window_size = 10
-            batch_size = 2048
-
+            # batch_size = 4096
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
             log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
                 str(batch_size), str(epochs), args.log_file, args.num_layers,
@@ -309,6 +312,7 @@ if __name__ == '__main__':
 
         structured_file = os.path.join(args.data_dir, args.validation_file + '_structured.csv')
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
+        structured_df = structured_df[:10000]
 
         grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
 
@@ -323,6 +327,31 @@ if __name__ == '__main__':
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=10, gc_after_trial=True)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=30, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
+
+        df = study.trials_dataframe()
+        df.to_csv('study_results.csv')
+        optuna.visualization.plot_param_importances(study)
+        optuna.visualization.plot_optimization_history(study)
+
+        # Optimierungsgeschichte
+        fig = vis.plot_optimization_history(study)
+        fig.update_layout(width=800, height=600)  # Ändern Sie die Größe der Figur
+        pio.write_image(fig, 'optimization_history.png')  # Speichern Sie die Figur als Bild
+
+        # Parameter-Importanz
+        fig = vis.plot_param_importances(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'param_importances.png')
+
+        # Konturdiagramm für zwei Hyperparameter
+        fig = vis.plot_contour(study, params=['num_layers', 'hidden_size'])
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'contour_plot.png')
+
+        # Parallelkoordinaten-Plot
+        fig = vis.plot_parallel_coordinate(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'parallel_coordinate.png')
