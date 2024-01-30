@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 import sys
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 def load_data(data_dir, log_file):
@@ -32,6 +33,7 @@ def get_dataloader(train_x, train_y, batch_size, kwargs):
 def train(model, train_loader, learning_rate, epochs, window_size, logger, log, device, input_size):
     criterion = nn.CrossEntropyLoss()
     optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
+    epoch_losses = []
 
     logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}")
     # writer = SummaryWriter(log_dir='log/' + log)
@@ -90,9 +92,19 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
         # Berechnung und ausgabe diverser Metriken
         end_time = time.time()
         epoch_duration = end_time - start_time
+
+        epoch_loss = train_loss / total_step
+        epoch_losses.append(epoch_loss)
         # writer.add_scalar('train_loss', train_loss / total_step, epoch + 1)
         # logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
+
+    # Zeichnen von Loss
+    plt.plot(epoch_losses)
+    plt.title('Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.show()
 
     # writer.close()
     return model
