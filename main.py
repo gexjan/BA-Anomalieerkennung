@@ -211,7 +211,7 @@ if __name__ == '__main__':
 
                 # Parsen der Validierungs-Datei
                 logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-                logparser.parse(args.validation_file)
+                # logparser.parse(args.validation_file)
 
                 # Einlesen der beim Parsing erzeugten _structured.csv Datei
                 # Speichern in der variable structured_df. Die Spalten Date und Time haben den Datentyp str
