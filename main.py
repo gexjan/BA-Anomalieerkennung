@@ -264,7 +264,7 @@ if __name__ == '__main__':
 
 
         def objective(trial, device, train_loader, logger, x_validate):
-            num_layers = trial.suggest_int('num_layers', 1, 3)
+            num_layers = trial.suggest_int('num_layers', 1, 2)
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             candidates = trial.suggest_int('candidates', 3, 15)
@@ -282,7 +282,7 @@ if __name__ == '__main__':
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
                                            input_size)
 
-            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size)
+            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, candidates, window_size, input_size)
 
             return evaluation.calculate_f1(TP, TN, FP, FN)
 
