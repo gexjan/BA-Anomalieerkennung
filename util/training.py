@@ -10,6 +10,8 @@ import time
 import sys
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import plotly.graph_objs as go
+import plotly.io as pio
 
 
 def load_data(data_dir, log_file):
@@ -100,11 +102,27 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
     # Zeichnen von Loss
+    # Interaktiver Modus
+    # Loss-Wert plotten
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'))
+    fig.update_layout(title='Training Loss per Epoch',
+                      xaxis_title='Epoch',
+                      yaxis_title='Loss')
+
+    # Plot anzeigen (optional, nützlich in interaktiven Umgebungen wie Jupyter Notebook)
+    # fig.show()
+
+    # Plot als Bild speichern
+    pio.write_image(fig, 'training_loss.png')
+
+
     plt.plot(epoch_losses)
     plt.title('Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.show()
+    # plt.show()
+    plt.savefig('loss.png')
 
     # writer.close()
     return model
