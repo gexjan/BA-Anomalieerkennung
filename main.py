@@ -272,17 +272,18 @@ if __name__ == '__main__':
 
 
         def objective(trial, device, train_loader, logger, x_validate):
-            num_layers = trial.suggest_int('num_layers', 1, 3)
+            # num_layers = trial.suggest_int('num_layers', 1, 2)
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
             candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
-            batch_size = trial.suggest_int('batch_size', 64, 4096)
+            # batch_size = trial.suggest_int('batch_size', 64, 4096)
 
             input_size = 1
-            epochs = 150
+            epochs = 120
             window_size = 10
-            # batch_size = 4096
+            batch_size = 2048
+            num_layers = 2
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
             log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
                 str(batch_size), str(epochs), args.log_file, args.num_layers,
@@ -290,7 +291,8 @@ if __name__ == '__main__':
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
                                            input_size)
 
-            TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, trained_model, device, candidates, window_size, input_size, logger)
+            TP, TN, FP, FN = evaluation.evaluate(x_validate, trained_model, device, candidates, window_size, input_size, logger)
+            print(x_validate)
 
             # Löschen des Modells und Freigeben des Speichers
             del model
@@ -312,7 +314,6 @@ if __name__ == '__main__':
 
         structured_file = os.path.join(args.data_dir, args.validation_file + '_structured.csv')
         structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
-        structured_df = structured_df[:10000]
 
         grouped_hdfs = preprocessing.group_hdfs(structured_df, anomaly_df, logger, remove_anomalies=False)
 
@@ -327,7 +328,7 @@ if __name__ == '__main__':
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=30, gc_after_trial=True)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=10, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
 
@@ -347,7 +348,7 @@ if __name__ == '__main__':
         pio.write_image(fig, 'param_importances.png')
 
         # Konturdiagramm für zwei Hyperparameter
-        fig = vis.plot_contour(study, params=['num_layers', 'hidden_size'])
+        fig = vis.plot_contour(study, params=['candidates', 'hidden_size'])
         fig.update_layout(width=800, height=600)
         pio.write_image(fig, 'contour_plot.png')
 

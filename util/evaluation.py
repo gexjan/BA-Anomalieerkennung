@@ -48,7 +48,6 @@ def get_eval_df(evaluation_df, model, device, candidates, window_size, input_siz
                 predicted = top_indices[batch_idx].tolist()
                 results.append({
                     'Index': index.item(),
-                    #  'Window': window.cpu().numpy().tolist(),  # Wenn die Fenster groß sind, könnte dies viel Speicher verwenden
                     'Next': next_value.item(),
                     'Next-Predicted': predicted,
                     'Label': label.item()
@@ -59,7 +58,7 @@ def get_eval_df(evaluation_df, model, device, candidates, window_size, input_siz
 
 def evaluate_group(group):
     index, group_df = group
-    label = group_df['Label'].iloc[0]  # Nehme an, dass das Label für den ganzen Index gleich ist
+    label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
     anomaly_detected = False
 
     for _, row in group_df.iterrows():
