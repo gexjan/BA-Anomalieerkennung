@@ -14,13 +14,13 @@ import plotly.graph_objs as go
 import plotly.io as pio
 
 
-def load_data(data_dir, log_file):
-    train_x = pd.read_pickle(os.path.join(data_dir, "{}_x.pkl".format((log_file).replace('.log', ''))))
-    train_y = pd.read_pickle(os.path.join(data_dir, "{}_y.pkl".format((log_file).replace('.log', ''))))
-    with open(os.path.join(data_dir, 'label_mapping.pkl'), 'rb') as f:
-        label_mapping = pickle.load(f)
-
-    return train_x, train_y, label_mapping
+# def load_data(data_dir, log_file):
+#     train_x = pd.read_pickle(os.path.join(data_dir, "{}_x.pkl".format((log_file).replace('.log', ''))))
+#     train_y = pd.read_pickle(os.path.join(data_dir, "{}_y.pkl".format((log_file).replace('.log', ''))))
+#     with open(os.path.join(data_dir, 'label_mapping.pkl'), 'rb') as f:
+#         label_mapping = pickle.load(f)
+#
+#     return train_x, train_y, label_mapping
 
 
 def get_dataloader(train_x, train_y, batch_size, kwargs):
