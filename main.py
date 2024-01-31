@@ -92,7 +92,7 @@ if __name__ == '__main__':
 
             # Parsen der Log-Dateien
             logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-            logparser.parse(args.log_file)
+            # logparser.parse(args.log_file)
 
         elif args.dataset == 'postgres':
             # Umwandeln mehrzeiliger Einträge in einzeilige Einträge
@@ -214,12 +214,13 @@ if __name__ == '__main__':
 
                 # Parsen der Validierungs-Datei
                 logparser = preprocessing.HDFSLogParser(args.log_dir, args.data_dir, args.parser_type, logger)
-                logparser.parse(args.validation_file)
+                # logparser.parse(args.validation_file)
 
                 # Einlesen der beim Parsing erzeugten _structured.csv Datei
                 # Speichern in der variable structured_df. Die Spalten Date und Time haben den Datentyp str
                 structured_file = os.path.join(args.data_dir, args.validation_file + '_structured.csv')
                 structured_df = pd.read_csv(structured_file, dtype={'Date': str, 'Time': str})
+                # structured_df = structured_df[:200000]
 
                 # Gruppieren der Einträge nach der Block-ID
                 # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
@@ -255,7 +256,6 @@ if __name__ == '__main__':
                 model = load_model(args.model_dir, device)
                 TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size, logger)
                 print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
-
 
             elif args.dataset == 'postgres':
                 pass
