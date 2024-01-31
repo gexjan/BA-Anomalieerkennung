@@ -84,9 +84,6 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
             # Aktualisierung der Modellparameter
             optimizer.step()
 
-            # graph zu Tensorboard hinzufügen.
-            # writer.add_graph(model, seq)
-
             # Aktualisieren des tqdm Fortschrittsbalkens
             batch_speed = step / (time.time() - start_time)
             tqdm_loader.set_postfix_str(f"batch/s={batch_speed:.2f}, loss={loss.item():.4f}")
@@ -97,7 +94,6 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
 
         epoch_loss = train_loss / total_step
         epoch_losses.append(epoch_loss)
-        # writer.add_scalar('train_loss', train_loss / total_step, epoch + 1)
         # logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
@@ -124,5 +120,4 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
     # plt.show()
     plt.savefig('loss.png')
 
-    # writer.close()
     return model
