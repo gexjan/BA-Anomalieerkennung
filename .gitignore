@@ -4,6 +4,7 @@ data/postgres*
 __pycache__/
 *.py[cod]
 log/*
+data/
 
 .idea/
 

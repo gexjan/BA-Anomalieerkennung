@@ -1,5 +1,6 @@
 import argparse
-from util.preprocessing import group_entries, slice_windows, create_label_mapping, transform_event_ids
+from util.preprocessing import group_entries, slice_windows, create_label_mapping, transform_event_ids, \
+    slice_and_transform_seqs
 import os
 import logging
 import pandas as pd
@@ -110,69 +111,42 @@ if __name__ == '__main__':
                           False),
             'eval')
 
-        # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
-        # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
-        num_processes = 12
-        train_x, train_y = slice_windows(
-            data_handler.get_grouped_data('train'),
-            args.window_size,
-            num_processes,
-            logger
-        )
-        data_handler.set_sliced_windows((train_x, train_y), 'train')
-
-
-        # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
-        eval_x, eval_y = slice_windows(
-            data_handler.get_grouped_data('eval'),
-            args.window_size,
-            num_processes,
-            logger,
-            use_padding=True
-        )
-        data_handler.set_sliced_windows((eval_x, eval_y), 'eval')
-        # print(data_handler.get_sliced_windows('eval')['x'][:20].to_string())
-
         # Umwandeln von EventIDs zu numerischen IDs
         # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
         # Das Wörterbuch soll nur die Werte aus dem Trainingsdatensatz enthalten
         data_handler.set_label_mapping(
-            create_label_mapping(data_handler.get_sliced_windows('train')['x'],
-                                 data_handler.get_sliced_windows('train')['y'],
-                                 logger)
+            create_label_mapping(data_handler.get_grouped_data('train'),logger)
         )
 
-        logger.info("Transforming event ids")
-        train_x = transform_event_ids(
-            data_handler.get_sliced_windows('train')['x'],
-            data_handler.get_label_mapping(),
-            logger,
-            'list'
-        )
-        train_y = transform_event_ids(
-            data_handler.get_sliced_windows('train')['y'],
-            data_handler.get_label_mapping(),
-            logger,
-            'single'
-        )
-        data_handler.set_transformed_windows(train_x, 'x', 'train')
-        data_handler.set_transformed_windows(train_y, 'y', 'train')
 
-        # Transformieren des Evaluationsdatensatzes
-        eval_x = transform_event_ids(
-            data_handler.get_sliced_windows('eval')['x'],
+        # Anzahl der Prozesse beim Slicen
+        num_processes = 10
+
+        # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
+        # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
+        x_transformed, y_transformed = slice_and_transform_seqs(
+            data_handler.get_grouped_data('train'),
+            args.window_size,
+            num_processes,
             data_handler.get_label_mapping(),
             logger,
-            'list'
+            use_padding=False
         )
-        eval_y = transform_event_ids(
-            data_handler.get_sliced_windows('eval')['y'],
+
+        data_handler.set_prepared_data(x_transformed, y_transformed, 'train')
+
+        # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
+        x_transformed, y_transformed = slice_and_transform_seqs(
+            data_handler.get_grouped_data('train'),
+            args.window_size,
+            num_processes,
             data_handler.get_label_mapping(),
             logger,
-            'single'
+            use_padding=True
         )
-        data_handler.set_transformed_windows(eval_x, 'x', 'eval')
-        data_handler.set_transformed_windows(eval_y, 'y', 'eval')
+
+        data_handler.set_prepared_data(x_transformed, y_transformed, 'eval')
+
 
         # Speichern des Datahandler-Objekts in einer Datei
         with open(data_handler_file, 'wb') as f:
@@ -199,8 +173,7 @@ if __name__ == '__main__':
             device = torch.device("cuda")
             logger.info('Using CUDA')
 
-        train_x = data_handler.get_transformed_windows('x', 'train')
-        train_y = data_handler.get_transformed_windows('y', 'train')
+        train_x, train_y = data_handler.get_prepared_data('train')
 
         train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
         num_classes = len(data_handler.get_label_mapping())

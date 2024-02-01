@@ -94,8 +94,8 @@ def process_windowing(data, use_padding):
             i += 1
     return windows
 
-def slice_windows(df, window_size, num_processes, logger, use_padding=False):
-    logger.info("Slicing windows")
+
+def slice_windows(df, window_size, num_processes, logger, use_padding):
     data_splits = [(row['SeqID'], row, window_size) for index, row in df.iterrows()]
     with Pool(num_processes) as pool:
         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
@@ -111,73 +111,16 @@ def slice_windows(df, window_size, num_processes, logger, use_padding=False):
 
     return train_x, train_y
 
-
-
-# def process_windowing(data, use_padding, keep_label=False):
-#     index, row, window_size = data
-#     sequence = row['EventSequence']
-#     label = row['Label'] if keep_label else None
-#     seqlen = len(sequence)
-#     windows = []
-#
-#     if use_padding and seqlen < window_size:
-#         padded_sequence = sequence + ['#PAD'] * (window_size - seqlen)
-#         windows.append([index, padded_sequence, '#PAD', label] if keep_label else [index, padded_sequence, '#PAD'])
-#     else:
-#         i = 0
-#         while (i + window_size) < seqlen:
-#             window_slice = sequence[i: i + window_size]
-#             next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
-#             windows.append([index, window_slice, next_element, label] if keep_label else [index, window_slice, next_element])
-#             i += 1
-#     if keep_label:
-#         for i in range(len(windows)):
-#             windows[i].append(label)  # Füge das Label zu jedem Fenster hinzu
-#
-#     return windows
-#
-#
-# def slice_windows(df, window_size, num_processes, logger, use_padding=False, keep_label=False):
-#     logger.info("Slicing windows")
-#     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
-#     with Pool(num_processes) as pool:
-#         results = pool.starmap(process_windowing, [(data, use_padding, keep_label) for data in data_splits])
-#
-#     if keep_label:
-#         columns = ['id', 'window', 'next', 'label']
-#     else:
-#         columns = ['id', 'window', 'next']
-#
-#     windows = [item for sublist in results for item in sublist]
-#     sliced_windows = pd.DataFrame(windows, columns=columns)
-#
-#     train_x = sliced_windows[['id', 'window']]
-#     train_y = sliced_windows[['id', 'next']]
-#
-#     if keep_label:
-#         train_x['label'] = sliced_windows['label']
-#
-#     return train_x, train_y
-#
-
-
-def create_label_mapping(x, y, logger):
+def create_label_mapping(df, logger):
     logger.info("Create label mapping")
     label_mapping = {'#OOV': 0, '#PAD': 1}
     next_id_value = 2
 
-    for index, row in x.iterrows():
-        for event_id in row['window']:
+    for index, row in df.iterrows():
+        for event_id in row['EventSequence']:
             if event_id not in label_mapping and event_id != '#PAD':
                 label_mapping[event_id] = next_id_value
                 next_id_value += 1
-
-    for index, row in y.iterrows():
-        id = row['next']
-        if id not in label_mapping and event_id != '#PAD':
-            label_mapping[id] = next_id_value
-            next_id_value += 1
-
     return label_mapping
 
 
@@ -194,6 +137,16 @@ def transform_event_ids(dataset, mapping, logger, mode):
         logger.error("Invalid transformation mode")
 
     return dataset_transformed
+
+
+def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
+    logger.info("Slicing windows")
+    x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
+
+    logger.info("Transforming windows")
+    x_transformed = transform_event_ids(x, mapping, logger, 'list')
+    y_transformed = transform_event_ids(y, mapping, logger, 'single')
+    return x_transformed, y_transformed
 
 
 """
