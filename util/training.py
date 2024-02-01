@@ -8,21 +8,12 @@ import torch.optim as optiom
 from torch.utils.tensorboard import SummaryWriter
 import time
 import sys
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import plotly.io as pio
+import pandas as pd
 
 from util import evaluation
-
-
-# def load_data(data_dir, log_file):
-#     train_x = pd.read_pickle(os.path.join(data_dir, "{}_x.pkl".format((log_file).replace('.log', ''))))
-#     train_y = pd.read_pickle(os.path.join(data_dir, "{}_y.pkl".format((log_file).replace('.log', ''))))
-#     with open(os.path.join(data_dir, 'label_mapping.pkl'), 'rb') as f:
-#         label_mapping = pickle.load(f)
-#
-#     return train_x, train_y, label_mapping
 
 
 def get_dataloader(train_x, train_y, batch_size, kwargs):
@@ -34,96 +25,130 @@ def get_dataloader(train_x, train_y, batch_size, kwargs):
     return DataLoader(dataset, batch_size=batch_size, shuffle=True, **kwargs)
 
 
-def train(model, train_loader, learning_rate, epochs, window_size, logger, log, device, input_size, eval_x=None, eval_y=None, calculate_f = False):
+def save_metrics_to_csv(epoch_losses, f1_scores, loss_file='loss_per_epoch.csv', f1_file='f1_per_epoch.csv'):
+    loss_df = pd.DataFrame(epoch_losses, columns=['Train Loss'])
+    loss_df.to_csv(loss_file, index_label='Epoch')
+
+    if f1_scores:
+        f1_df = pd.DataFrame(f1_scores, columns=['F1 Score'])
+        f1_df.to_csv(f1_file, index_label='Epoch')
+
+def plot_loss_and_f1(epoch_losses, f1_scores):
+    # Loss-Wert plotten
+    loss_fig = go.Figure()
+    loss_fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'))
+    loss_fig.update_layout(title='Training Loss per Epoch',
+                      xaxis_title='Epoch',
+                      yaxis_title='Loss')
+    loss_fig.write_image('training_loss.png')
+
+    if f1_scores:
+        # F1-Wert plotten
+        f_fig = go.Figure()
+        f_fig.add_trace(go.Scatter(y=f1_scores, mode='lines', name='F1 Score'))
+        f_fig.update_layout(title='F1-Score per Epoch',
+                            xaxis_title='Epoch',
+                            yaxis_title='F1')
+        f_fig.write_image('f1_epoch.png')
+
+
+
+
+def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
     epoch_losses = []
+    f1_scores = []
 
     logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}")
     # writer = SummaryWriter(log_dir='log/' + log)
 
     total_step = len(train_loader)
-    print("Steps: ", total_step)
+
+    try:
+        for epoch in range(epochs):
+            # Setzt das Modell in den Trainingsmodus. Dies ist wichtig, da einige Modelle sich im Trainings- und
+            # Evaluierungsmodus unterschiedlich verhalten (z.B. Dropout, Batch Normalization...)
+            model.train()
+
+            # Initialisierung des Trainingsverlusts für die aktuelle Epoche
+            train_loss = 0
+
+            # Aufzeichnung der Startzeit zur Berechnung der Epochendauer
+            start_time = time.time()
 
 
-    for epoch in range(epochs):
-        # Setzt das Modell in den Trainingsmodus. Dies ist wichtig, da einige Modelle sich im Trainings- und
-        # Evaluierungsmodus unterschiedlich verhalten (z.B. Dropout, Batch Normalization...)
-        model.train()
+            # Iteration über alle Bachtes im Dataloader
+            # for step, (seq, label) in enumerate(train_loader):
+            for step, (seq, label) in enumerate(train_loader):
+                ### Forward pass: Berechnung der Modellvorhersagen
+                # Die Eingabesequenz wird zunächst geklont, von früheren Berechnungen losgelöst, in die richtige Form gebracht
+                # und dann auf das richtige Gerät (CPU oder GPU) verschoben
+                seq = seq.clone().detach().view(-1, window_size, input_size).to(device)
+                output = model(seq)
 
-        # Initialisierung des Trainingsverlusts für die aktuelle Epoche
-        train_loss = 0
+                # Berechnung des Verlustes zwischen den Vorhersagen des Modells und den tatsächlichen Labels
+                loss = criterion(output, label.to(device))
 
-        # Aufzeichnung der Startzeit zur Berechnung der Epochendauer
-        start_time = time.time()
+                ### Backward pass: Berechnung des Gradienten des Verlustes bezüglich der Modellparameter
+                # Setzen aller Gradienten auf Null, um die Akkumulation aus früheren Schritten zu verhindern
+                optimizer.zero_grad()
 
-        # Initialisieren des tqdm Fortschrittsbalkens
-        tqdm_loader = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False)
+                # Berechnung des Gradienten des Verlustes
+                loss.backward()
 
-        # Iteration über alle Bachtes im Dataloader
-        # for step, (seq, label) in enumerate(train_loader):
-        for step, (seq, label) in enumerate(tqdm_loader):
-            ### Forward pass: Berechnung der Modellvorhersagen
-            # Die Eingabesequenz wird zunächst geklont, von früheren Berechnungen losgelöst, in die richtige Form gebracht
-            # und dann auf das richtige Gerät (CPU oder GPU) verschoben
-            seq = seq.clone().detach().view(-1, window_size, input_size).to(device)
-            output = model(seq)
+                # Summieren des Verlustes zur späteren Ausgabe
+                train_loss += loss.item()
 
-            # Berechnung des Verlustes zwischen den Vorhersagen des Modells und den tatsächlichen Labels
-            loss = criterion(output, label.to(device))
+                # Anpassung der Modellparameter basierend auf den berechneten Gradienten
+                # Aktualisierung der Modellparameter
+                optimizer.step()
 
-            ### Backward pass: Berechnung des Gradienten des Verlustes bezüglich der Modellparameter
-            # Setzen aller Gradienten auf Null, um die Akkumulation aus früheren Schritten zu verhindern
-            optimizer.zero_grad()
+                # Aktualisieren des tqdm Fortschrittsbalkens
+                batch_speed = step / (time.time() - start_time)
 
-            # Berechnung des Gradienten des Verlustes
-            loss.backward()
+            # Berechnung und ausgabe diverser Metriken
+            end_time = time.time()
+            epoch_duration = end_time - start_time
 
-            # Summieren des Verlustes zur späteren Ausgabe
-            train_loss += loss.item()
+            epoch_loss = train_loss / total_step
+            epoch_losses.append(epoch_loss)
+            logger.info('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
 
-            # Anpassung der Modellparameter basierend auf den berechneten Gradienten
-            # Aktualisierung der Modellparameter
-            optimizer.step()
-
-            # Aktualisieren des tqdm Fortschrittsbalkens
-            batch_speed = step / (time.time() - start_time)
-            tqdm_loader.set_postfix_str(f"batch/s={batch_speed:.2f}, loss={loss.item():.4f}")
-
-        # Berechnung und ausgabe diverser Metriken
-        end_time = time.time()
-        epoch_duration = end_time - start_time
-
-        if calculate_f:
-            TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, candidates, args.input_size,
-                                                 logger)
-
-        epoch_loss = train_loss / total_step
-        epoch_losses.append(epoch_loss)
-        # logger.debug('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
+            if calculate_f:
+                f1 = evaluator.evaluate(model, use_tqdm=True)
+                evaluator.print_summary()
+                f1_scores.append(f1)
+                save_metrics_to_csv(epoch_losses, f1_scores)
+    finally:
+        plot_loss_and_f1(epoch_losses, f1_scores)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
-    # Zeichnen von Loss
-    # Interaktiver Modus
-    # Loss-Wert plotten
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'))
-    fig.update_layout(title='Training Loss per Epoch',
-                      xaxis_title='Epoch',
-                      yaxis_title='Loss')
-
-    # Plot anzeigen (optional, nützlich in interaktiven Umgebungen wie Jupyter Notebook)
-    # fig.show()
-
-    # Plot als Bild speichern
-    pio.write_image(fig, 'training_loss.png')
-
-
-    plt.plot(epoch_losses)
-    plt.title('Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    # plt.show()
-    plt.savefig('loss.png')
+    # # Loss-Wert plotten
+    # loss_fig = go.Figure()
+    # loss_fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'))
+    # loss_fig.update_layout(title='Training Loss per Epoch',
+    #                   xaxis_title='Epoch',
+    #                   yaxis_title='Loss')
+    #
+    # pio.write_image(loss_fig, 'training_loss.png')
+    #
+    # if calculate_f:
+    #     # F1-Wert plotten
+    #     f_fig = go.Figure()
+    #     f_fig.add_trace(go.Scatter(y=f1_scores, mode='lines', name='Train Loss'))
+    #     f_fig.update_layout(title='F1-Score per Epoch',
+    #                            xaxis_title='Epoch',
+    #                            yaxis_title='F1')
+    #
+    #     pio.write_image(f_fig, 'f1_epoch.png')
+    #
+    #
+    # plt.plot(epoch_losses)
+    # plt.title('Training Loss')
+    # plt.xlabel('Epoch')
+    # plt.ylabel('Loss')
+    # # plt.show()
+    # plt.savefig('loss.png')
 
     return model

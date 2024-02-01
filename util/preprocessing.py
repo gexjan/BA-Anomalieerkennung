@@ -88,7 +88,7 @@ def process_windowing(data, use_padding):
         windows.append([seq_id, padded_sequence, '#PAD', label])
     else:
         i = 0
-        while (i + window_size) <= seqlen:
+        while (i + window_size) < seqlen:
             window_slice = sequence[i: i + window_size]
             next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
             windows.append([seq_id, window_slice, next_element, label])
@@ -139,6 +139,8 @@ def transform_event_ids(dataset, mapping, logger, mode):
 def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
     logger.info("Slicing windows")
     x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
+    if not use_padding:
+        x.to_csv('x_new.csv')
 
     logger.info("Transforming windows")
     x_transformed = transform_event_ids(x, mapping, logger, 'list')

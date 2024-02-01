@@ -119,6 +119,8 @@ if __name__ == '__main__':
             create_label_mapping(data_handler.get_grouped_data('train'),logger)
         )
 
+        data_handler.get_grouped_data('train').to_csv('grouped_new.csv')
+
 
         # Anzahl der Prozesse beim Slicen
         num_processes = 10
@@ -136,7 +138,7 @@ if __name__ == '__main__':
 
         data_handler.set_prepared_data(x_transformed, y_transformed, 'train')
 
-        # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
+        # # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
         x_transformed, y_transformed = slice_and_transform_seqs(
             data_handler.get_grouped_data('eval'),
             args.window_size,
@@ -178,6 +180,10 @@ if __name__ == '__main__':
         train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
         num_classes = len(data_handler.get_label_mapping())
 
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 0.1)
+
         if args.model == 'deeplog':
             input_size = args.input_size
             hidden_size = args.hidden_size
@@ -191,8 +197,17 @@ if __name__ == '__main__':
             log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
                 str(batch_size), str(epochs), args.log_file, args.num_layers,
                 hidden_size, window_size, learning_rate)
-            trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
-                                           input_size)
+            trained_model = training.train(
+                model,
+                train_loader,
+                learning_rate,
+                epochs,
+                window_size,
+                logger,
+                device,
+                input_size,
+                evaluator,
+                calculate_f=False)
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.model_dir, args.model_file, logger)
 
@@ -228,12 +243,9 @@ if __name__ == '__main__':
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
-        # print(eval_x)
-        # print(eval_y)
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger)
-        TP, TN, FP, FN = evaluator.evaluate(model)
-        # TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, args.candidates, args.input_size, logger)
-        print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+        f1 = evaluator.evaluate(model)
+        evaluator.print_summary()
 
     if args.hptuning:
         if not os.path.exists(data_handler_file):

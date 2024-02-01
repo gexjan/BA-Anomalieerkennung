@@ -78,7 +78,7 @@ class HDFSDataHandler(DataHandler):
         # Spezifische Initialisierung für HDFSDataHandler
 
     def get_parse_params(self):
-        log_format = '<Date> <Time> <Component> <Content>'
+        log_format = '<Date> <Time> <Pid> <Level> <Component>: <Content>'  # HDFS log format
         rex = [r"blk_-?\d+",
                r"(\d+\.){3}\d+(:\d+)?"]
         tau = 0.7  # Spell

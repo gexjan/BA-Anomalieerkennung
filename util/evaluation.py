@@ -38,25 +38,24 @@ class EvaluationSequenceDataset(Dataset):
         index, window, next_value, label = self.data[idx]
         return index, torch.tensor(window, dtype=torch.float), next_value, label
 class Evaluator:
-    def __init__(self, args, x, y, device, kwargs, logger):
+    def __init__(self, args, x, y, device, kwargs, logger, data_percentage):
         self.args = args
-        self.x, self.y = x, y
+        self.x = x[:int(len(x) * data_percentage)]
+        self.y = y[:int(len(y) * data_percentage)]
         self.logger = logger
         self.device = device
         self.kwargs = kwargs
 
 
-    def get_eval_df(self, model):
-        self.logger.info("Create EvaluationSequenceDataset")
-        dataset = EvaluationSequenceDataset(self.x, self.y)
-        self.logger.info("Creating dataloader")
-        dataloader = DataLoader(dataset, batch_size=2048, shuffle=False, pin_memory=True)
 
-        self.logger.info("Predicting values")
+    def get_eval_df(self, model, use_tqdm):
+        dataset = EvaluationSequenceDataset(self.x, self.y)
+        dataloader = DataLoader(dataset, batch_size=2048, shuffle=False, pin_memory=True)
         model.eval()
         results = []
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Evaluating", leave=False):
+            loop = tqdm(dataloader, desc="Predicting", leave=False) if use_tqdm else dataloader
+            for batch in loop:
                 index, windows, next_values, labels = batch
                 _, window_size = windows.shape
                 windows = windows.to(self.device).view(-1, window_size, self.args.input_size)
@@ -76,14 +75,14 @@ class Evaluator:
 
         return pd.DataFrame(results)
 
-    def evaluate(self, model):
-        prediction_df = self.get_eval_df(model)
+    def evaluate(self, model, use_tqdm=True):
+        prediction_df = self.get_eval_df(model, use_tqdm)
         self.logger.info("Evaluating")
         grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
-        self.logger.info("Threading")
 
         results = []
-        for index, group_df in tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False):
+        loop = tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False) if use_tqdm else grouped
+        for index, group_df in loop:
             # index, group_df = group
             label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
 
@@ -108,18 +107,17 @@ class Evaluator:
                 else:  # True Negative
                     results.append((0, 1, 0, 0))
 
-        self.logger.info("Summieren")
-
         # Summiere die Ergebnisse
-        TP, TN, FP, FN = map(sum, zip(*results))
-        return TP, TN, FP, FN
+        self.TP, self.TN, self.FP, self.FN = map(sum, zip(*results))
+        return self.calculate_f1(self.TP, self.TN, self.FP, self.FN)
 
 
-def calculate_f1(TP, TN, FP, FN, logger):
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-    f1 = (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
+    def calculate_f1(self, TP, TN, FP, FN):
+        self.precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+        self.recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+        self.f1= (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
+        return self.f1
 
-    logger.info(
-        f"Evaluation results - TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}")
-    return f1
+    def print_summary(self):
+        self.logger.info(
+            f"Evaluation results - TP: {self.TP}, TN: {self.TN}, FP: {self.FP}, FN: {self.FN}, Precision: {self.precision}, recall: {self.recall}, f1: {self.f1}")
