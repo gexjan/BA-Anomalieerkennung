@@ -17,6 +17,7 @@ import optuna.visualization as vis
 import plotly.io as pio
 from util.datahandler import DataHandler
 import sys
+from util.evaluation import Evaluator
 
 from util.training import get_dataloader
 
@@ -229,7 +230,9 @@ if __name__ == '__main__':
 
         # print(eval_x)
         # print(eval_y)
-        TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, args.candidates, args.input_size, logger)
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger)
+        TP, TN, FP, FN = evaluator.evaluate(model)
+        # TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, args.candidates, args.input_size, logger)
         print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
 
     if args.hptuning:
