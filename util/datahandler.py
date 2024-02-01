@@ -59,29 +59,18 @@ class DataHandler:
     def get_grouped_data(self, data_type):
         return getattr(self, f"df_grouped_{data_type}")
 
-    def set_sliced_windows(self, sliced_data, data_type):
-        data_dict = {'x': sliced_data[0], 'y': sliced_data[1]}
-        setattr(self, f"df_sliced_{data_type}", data_dict)
+    def set_prepared_data(self, x, y, data_type):
+        setattr(self, f"df_prepared_x_{data_type}", x)
+        setattr(self, f"df_prepared_y_{data_type}", y)
 
-    def get_sliced_windows(self, data_type):
-        data_dict = getattr(self, f"df_sliced_{data_type}", None)
-        if data_dict is not None:
-            return data_dict
-        return None
+    def get_prepared_data(self, data_type):
+        return getattr(self, f"df_prepared_x_{data_type}"), getattr(self, f"df_prepared_y_{data_type}")
 
     def set_label_mapping(self, label_mapping):
         self.label_mapping = label_mapping
 
     def get_label_mapping(self):
         return self.label_mapping
-
-    def set_transformed_windows(self, data, var_name, data_type):
-        return setattr(self, f"df_transformed_{data_type}_{var_name}", data)
-
-    def get_transformed_windows(self, var_name, data_type):
-        return getattr(self, f"df_transformed_{data_type}_{var_name}")
-
-
 
 class HDFSDataHandler(DataHandler):
     def __init__(self, args, logger):
