@@ -38,7 +38,7 @@ def postgres_to_singleline(log_files, log_dir, data_dir):
 # zusammenhängende Ereignisse darstellen. Die Gruppierung ermöglicht eine
 # effektivere Analyse dieser zusammenhängenden Ereignisse und hilft bei der Identifizierung
 # von Mustern oder Anomalien, die innerhalb einer bestimmten Block-ID auftreten.
-def group_entries(dataset, df, anomaly_df, logger, remove_anomalies):
+def group_entries(dataset, df, anomaly_df, logger, train_data):
     logger.info("Grouping Log Files")
 
     if dataset == 'hdfs':
@@ -49,23 +49,57 @@ def group_entries(dataset, df, anomaly_df, logger, remove_anomalies):
         df['SeqID'] = df['Content'].apply(
             lambda x: regex_pattern.search(x).group(0) if regex_pattern.search(x) else None)
 
-    elif dataset == 'postgres':
-        pass
+        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+        grouped = df.groupby('SeqID')['EventId'].apply(list)
 
-    # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
-    grouped = df.groupby('SeqID')['EventId'].apply(list)
+        grouped = grouped.reset_index()
+        grouped.columns = ['SeqID', 'EventSequence']
 
-    grouped = grouped.reset_index()
-    grouped.columns = ['SeqID', 'EventSequence']
+        # Zusammenführen der DataFrames anhand der Block-ID
+        merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+        merged_df.drop(columns=[anomaly_file_col], inplace=True)
 
-    # Zusammenführen der DataFrames anhand der Block-ID
-    merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
-    merged_df.drop(columns=[anomaly_file_col], inplace=True)
+        # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
+        missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
+        if missing_labels:
+            logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
 
-    # Entfernen der anomalen Zeilen
-    # Beim Training ist das notwendig, um dem Modell das "normale" Verhalten beizubringen
-    if remove_anomalies:
-        merged_df = merged_df[merged_df['Label'] == 'Normal']
+        if train_data:
+            # Entfernen der anomalen Einträge
+            merged_df = merged_df[merged_df['Label'] == 'Normal']
+            # Setze alle Labels auf 'None'
+            merged_df['Label'] = 'None'
+
+
+    # elif dataset == 'postgres':
+    #     pass
+    #
+    #
+    #
+    #
+    #
+    # # Trainingsdaten haben nicht immer labels. Daher können die nicht immer erwartet werden
+    # if not train_data:
+    #     print("Das wird nicht ausgeführt")
+    #     # Zusammenführen der DataFrames anhand der Block-ID
+    #     merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+    #     merged_df.drop(columns=[anomaly_file_col], inplace=True)
+    # else:
+    #     print("Ja das wird ausgeführt")
+    #     merged_df = grouped
+    #     merged_df['Label'] = 'None'  # Füge die Label-Spalte mit Platzhaltern hinzu
+    #
+    # # Entfernen der anomalen Zeilen
+    # # Beim Training ist das notwendig, um dem Modell das "normale" Verhalten beizubringen
+    # if not train_data and remove_anomalies:
+    #     print("Testtest123")
+    #     # if remove_anomalies:
+    #     merged_df = merged_df[merged_df['Label'] == 'Normal']
+    #
+    #
+    #
+    # # Entfernen von Duplikaten in 'EventSequence'
+    # # merged_df = merged_df.drop_duplicates(subset=['EventSequence'])
     return merged_df
 
 
@@ -139,8 +173,6 @@ def transform_event_ids(dataset, mapping, logger, mode):
 def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
     logger.info("Slicing windows")
     x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
-    if not use_padding:
-        x.to_csv('x_new.csv')
 
     logger.info("Transforming windows")
     x_transformed = transform_event_ids(x, mapping, logger, 'list')

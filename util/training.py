@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import plotly.io as pio
 import pandas as pd
-
+from plotly.subplots import make_subplots
 from util import evaluation
 
 
@@ -25,7 +25,7 @@ def get_dataloader(train_x, train_y, batch_size, kwargs):
     return DataLoader(dataset, batch_size=batch_size, shuffle=True, **kwargs)
 
 
-def save_metrics_to_csv(epoch_losses, f1_scores, loss_file='loss_per_epoch.csv', f1_file='f1_per_epoch.csv'):
+def save_metrics_to_csv(epoch_losses, f1_scores, loss_file='./data/loss_per_epoch.csv', f1_file='./data/f1_per_epoch.csv'):
     loss_df = pd.DataFrame(epoch_losses, columns=['Train Loss'])
     loss_df.to_csv(loss_file, index_label='Epoch')
 
@@ -40,7 +40,7 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
     loss_fig.update_layout(title='Training Loss per Epoch',
                       xaxis_title='Epoch',
                       yaxis_title='Loss')
-    loss_fig.write_image('training_loss.png')
+    loss_fig.write_image('./data/training_loss.png')
 
     if f1_scores:
         # F1-Wert plotten
@@ -49,7 +49,29 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
         f_fig.update_layout(title='F1-Score per Epoch',
                             xaxis_title='Epoch',
                             yaxis_title='F1')
-        f_fig.write_image('f1_epoch.png')
+        f_fig.write_image('./data/f1_epoch.png')
+
+        # Plot mit beiden Metriken erstellen
+        combined_fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Train Loss hinzufügen
+        combined_fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'), secondary_y=False)
+
+        # F1 Score hinzufügen
+        combined_fig.add_trace(go.Scatter(y=f1_scores, mode='lines', name='F1 Score'), secondary_y=True)
+
+        # Achsenbezeichnungen hinzufügen
+        combined_fig.update_layout(
+            title='Train Loss and F1 Score per Epoch',
+            xaxis_title='Epoch'
+        )
+
+        # Y-Achsenbezeichnungen für beide Y-Achsen hinzufügen
+        combined_fig.update_yaxes(title_text='Loss', secondary_y=False)
+        combined_fig.update_yaxes(title_text='F1 Score', secondary_y=True)
+
+        # Bild speichern
+        combined_fig.write_image('./data/combined_loss_f1.png')
 
 
 
@@ -123,32 +145,5 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     finally:
         plot_loss_and_f1(epoch_losses, f1_scores)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
-
-    # # Loss-Wert plotten
-    # loss_fig = go.Figure()
-    # loss_fig.add_trace(go.Scatter(y=epoch_losses, mode='lines', name='Train Loss'))
-    # loss_fig.update_layout(title='Training Loss per Epoch',
-    #                   xaxis_title='Epoch',
-    #                   yaxis_title='Loss')
-    #
-    # pio.write_image(loss_fig, 'training_loss.png')
-    #
-    # if calculate_f:
-    #     # F1-Wert plotten
-    #     f_fig = go.Figure()
-    #     f_fig.add_trace(go.Scatter(y=f1_scores, mode='lines', name='Train Loss'))
-    #     f_fig.update_layout(title='F1-Score per Epoch',
-    #                            xaxis_title='Epoch',
-    #                            yaxis_title='F1')
-    #
-    #     pio.write_image(f_fig, 'f1_epoch.png')
-    #
-    #
-    # plt.plot(epoch_losses)
-    # plt.title('Training Loss')
-    # plt.xlabel('Epoch')
-    # plt.ylabel('Loss')
-    # # plt.show()
-    # plt.savefig('loss.png')
 
     return model
