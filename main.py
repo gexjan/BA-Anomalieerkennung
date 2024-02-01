@@ -137,7 +137,7 @@ if __name__ == '__main__':
 
         # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
         x_transformed, y_transformed = slice_and_transform_seqs(
-            data_handler.get_grouped_data('train'),
+            data_handler.get_grouped_data('eval'),
             args.window_size,
             num_processes,
             data_handler.get_label_mapping(),
@@ -146,7 +146,6 @@ if __name__ == '__main__':
         )
 
         data_handler.set_prepared_data(x_transformed, y_transformed, 'eval')
-
 
         # Speichern des Datahandler-Objekts in einer Datei
         with open(data_handler_file, 'wb') as f:
@@ -226,8 +225,7 @@ if __name__ == '__main__':
         except NameError:
             model = load_model(args.model_dir, device, args.model_file, logger)
 
-        eval_x = data_handler.get_transformed_windows('x', 'eval')
-        eval_y = data_handler.get_transformed_windows('y', 'eval')
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
 
         print(eval_x)
         print(eval_y)
