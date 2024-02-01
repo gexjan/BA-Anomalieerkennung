@@ -227,11 +227,35 @@ if __name__ == '__main__':
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
-        print(eval_x)
-        print(eval_y)
+        # print(eval_x)
+        # print(eval_y)
         TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, args.candidates, args.input_size, logger)
         print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
 
+    if args.hptuning:
+        if not os.path.exists(data_handler_file):
+            logger.error("No datahandler file. Rerun with argument -prepare")
+            sys.exit(1)
+
+        if not os.path.exists(os.path.join(args.model_dir, args.model_file)):
+            logger.error("No model trained")
+            sys.exit(1)
+
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        try:
+            data_handler
+        except NameError:
+            logger.info("Loading data")
+            with open(data_handler_file, 'rb') as f:
+                data_handler = pickle.load(f)
 
 
 

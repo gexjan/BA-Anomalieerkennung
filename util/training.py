@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import plotly.io as pio
 
+from util import evaluation
+
 
 # def load_data(data_dir, log_file):
 #     train_x = pd.read_pickle(os.path.join(data_dir, "{}_x.pkl".format((log_file).replace('.log', ''))))
@@ -32,7 +34,7 @@ def get_dataloader(train_x, train_y, batch_size, kwargs):
     return DataLoader(dataset, batch_size=batch_size, shuffle=True, **kwargs)
 
 
-def train(model, train_loader, learning_rate, epochs, window_size, logger, log, device, input_size):
+def train(model, train_loader, learning_rate, epochs, window_size, logger, log, device, input_size, eval_x=None, eval_y=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
     epoch_losses = []
@@ -91,6 +93,10 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, log, 
         # Berechnung und ausgabe diverser Metriken
         end_time = time.time()
         epoch_duration = end_time - start_time
+
+        if calculate_f:
+            TP, TN, FP, FN = evaluation.evaluate(eval_x, eval_y, model, device, candidates, args.input_size,
+                                                 logger)
 
         epoch_loss = train_loss / total_step
         epoch_losses.append(epoch_loss)
