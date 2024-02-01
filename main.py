@@ -62,6 +62,8 @@ if __name__ == '__main__':
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
     parser.add_argument('-hptuning', action='store_true', help='Hyperparameter tuning')
 
+    parser.add_argument('--noparse', action='store_false', help='Skip parsing')
+
     parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'],
                         help='Choose the parser')
     parser.add_argument('--window-size', type=int, default='10', help='Size of the windows')
@@ -87,7 +89,9 @@ if __name__ == '__main__':
     if args.prepare:
 
         data_handler = DataHandler.create(args, logger)
-        data_handler.parse()
+
+        if args.noparse:
+            data_handler.parse()
         data_handler.read_structured_files()
 
         # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
@@ -118,9 +122,6 @@ if __name__ == '__main__':
         data_handler.set_label_mapping(
             create_label_mapping(data_handler.get_grouped_data('train'),logger)
         )
-
-        data_handler.get_grouped_data('train').to_csv('grouped_new.csv')
-
 
         # Anzahl der Prozesse beim Slicen
         num_processes = 10
@@ -182,7 +183,7 @@ if __name__ == '__main__':
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 0.1)
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
 
         if args.model == 'deeplog':
             input_size = args.input_size
@@ -207,16 +208,16 @@ if __name__ == '__main__':
                 device,
                 input_size,
                 evaluator,
-                calculate_f=False)
+                calculate_f=True)
 
-            save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.model_dir, args.model_file, logger)
+            save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
 
     if args.predict:
         if not os.path.exists(data_handler_file):
             logger.error("No datahandler file. Rerun with argument -prepare")
             sys.exit(1)
 
-        if not os.path.exists(os.path.join(args.model_dir, args.model_file)):
+        if not os.path.exists(os.path.join(args.data_dir, args.model_file)):
             logger.error("No model trained")
             sys.exit(1)
 
@@ -239,7 +240,7 @@ if __name__ == '__main__':
         try:
             model = trained_model
         except NameError:
-            model = load_model(args.model_dir, device, args.model_file, logger)
+            model = load_model(args.data_dir, device, args.model_file, logger)
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
