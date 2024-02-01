@@ -79,35 +79,32 @@ def group_entries(dataset, df, anomaly_df, logger, remove_anomalies):
 def process_windowing(data, use_padding):
     seq_id, row, window_size = data
     sequence = row['EventSequence']
+    label = row['Label']
     seqlen = len(sequence)
     windows = []
 
     if use_padding and seqlen < window_size:
         padded_sequence = sequence + ['#PAD'] * (window_size - seqlen)
-        windows.append([seq_id, padded_sequence, '#PAD'])
+        windows.append([seq_id, padded_sequence, '#PAD', label])
     else:
         i = 0
         while (i + window_size) <= seqlen:
             window_slice = sequence[i: i + window_size]
             next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
-            windows.append([seq_id, window_slice, next_element])
+            windows.append([seq_id, window_slice, next_element, label])
             i += 1
     return windows
 
 
 def slice_windows(df, window_size, num_processes, logger, use_padding):
-    data_splits = [(row['SeqID'], row, window_size) for index, row in df.iterrows()]
+    data_splits = [(index, row, window_size) for index, row in df.iterrows()]
     with Pool(num_processes) as pool:
         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
 
     windows = [item for sublist in results for item in sublist]
-    sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next'])
-    train_x = sliced_windows[['SeqID', 'window']]
+    sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])
+    train_x = sliced_windows[['SeqID', 'window', 'label']]
     train_y = sliced_windows[['SeqID', 'next']]
-
-    # Hinzufügen der Label-Spalte basierend auf der SeqID in train_x
-    label_dict = df.set_index('SeqID')['Label'].to_dict()
-    train_x['label'] = train_x['SeqID'].map(label_dict)
 
     return train_x, train_y
 
