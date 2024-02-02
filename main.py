@@ -20,6 +20,7 @@ import sys
 from util.evaluation import Evaluator
 
 from util.training import get_dataloader
+from datetime import timedelta
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
@@ -76,6 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
+    parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
 
     ## Evaluation
     parser.add_argument('--evaluation-file', type=str, default='hdfs_test.log',
@@ -318,9 +320,21 @@ if __name__ == '__main__':
 
         study = optuna.create_study(direction='maximize')
         study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger),
-                       n_trials=3, gc_after_trial=True)
+                       n_trials=args.hptrials, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
+
+        # Sammle die Laufzeiten aller Trials
+        durations = [trial.datetime_complete - trial.datetime_start for trial in study.trials if
+                     trial.datetime_complete and trial.datetime_start]
+
+        # Berechne die Summe der Laufzeiten
+        total_duration = sum(durations, timedelta())
+
+        # Berechne die durchschnittliche Laufzeit
+        average_duration = total_duration / len(durations)
+
+        logger.info(f'Durchschnittliche Laufzeit eines Trials: {average_duration}')
 
         df = study.trials_dataframe()
         df.to_csv('data/study_results.csv')
