@@ -7,6 +7,7 @@ import re
 
 # Parameter für den Anteil der Testdaten, die verwendet werden sollen
 test_data_usage_percentage =  0.1 # z.B. 1.0 für 100% der Testdaten
+train_data_usage_percentage =  0.5 # z.B. 1.0 für 100% der Trainingsdaten
 
 log_dir = '../logs/HDFS/'
 log_file = 'HDFS.log'
@@ -41,6 +42,10 @@ train_ids, test_ids = train_test_split(block_ids, test_size=0.99, random_state=4
 # Auswahl eines Prozentsatzes der Test-IDs, falls notwendig
 if test_data_usage_percentage < 1.0:
     test_ids = test_ids[:int(len(test_ids) * test_data_usage_percentage)]
+
+# Auswahl eines Prozentsatzes der Trainings-IDs, falls notwendig
+if train_data_usage_percentage < 1.0:
+    train_ids = train_ids[:int(len(train_ids) * train_data_usage_percentage)]
 
 # Markieren der Zeilen für Training oder Test
 train_lines = set()
