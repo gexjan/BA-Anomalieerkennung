@@ -142,6 +142,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 evaluator.print_summary()
                 f1_scores.append(f1)
                 save_metrics_to_csv(epoch_losses, f1_scores)
+                plot_loss_and_f1(epoch_losses, f1_scores)
     finally:
         plot_loss_and_f1(epoch_losses, f1_scores)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
