@@ -75,6 +75,7 @@ if __name__ == '__main__':
     parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
+    parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
 
     ## Evaluation
     parser.add_argument('--evaluation-file', type=str, default='hdfs_test.log',
@@ -208,7 +209,7 @@ if __name__ == '__main__':
                 device,
                 input_size,
                 evaluator,
-                calculate_f=True)
+                args.calculate_f)
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
 
