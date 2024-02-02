@@ -6,6 +6,181 @@ import pandas as pd
 from multiprocessing import Pool
 
 
+# Methode zum Umwandeln mehrzeiliger Postgres-Logeinträge in einzeilige Einträge
+def postgres_to_singleline(log_files, log_dir, data_dir):
+    for logfile in log_files:
+        log_path = os.path.join(log_dir, logfile)
+
+        with open(log_path, 'r') as file:
+            lines = file.readlines()
+
+        output_path = os.path.join(data_dir, logfile)
+        with open(output_path, 'w') as output_file:
+            current_entry = ""
+
+            for line in lines:
+                # Überprüfen, ob die Zeile mit einem Zeitstempel beginnt
+                if line[:4].isdigit() and line[4] == '-':
+                    if current_entry:
+                        output_file.write(current_entry.strip() + '\n')
+                    current_entry = line.strip()
+                else:
+                    # Füge die Zeile dem aktuellen Eintrag hinzu, getrennt durch ein Pipe-Symbol
+                    current_entry += ' | ' + line.strip()
+
+            # Füge den letzten Eintrag hinzu
+            if current_entry:
+                output_file.write(current_entry.strip() + '\n')
+
+
+# Nachfolgende Methode gruppiert alle Log-Einträge mit derselben Block-ID.
+# Das ist notwendig, da Log-Einträge, die zur selben Block-ID gehören, typischerweise
+# zusammenhängende Ereignisse darstellen. Die Gruppierung ermöglicht eine
+# effektivere Analyse dieser zusammenhängenden Ereignisse und hilft bei der Identifizierung
+# von Mustern oder Anomalien, die innerhalb einer bestimmten Block-ID auftreten.
+def group_entries(dataset, df, anomaly_df, logger, train_data):
+    logger.info("Grouping Log Files")
+
+    if dataset == 'hdfs':
+        anomaly_file_col = 'BlockId'
+        regex_pattern = re.compile(r'(blk_-?\d+)')
+
+        # Hinzufügen einer neuen Spalte für die extrahierte Block-ID
+        df['SeqID'] = df['Content'].apply(
+            lambda x: regex_pattern.search(x).group(0) if regex_pattern.search(x) else None)
+
+        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+        grouped = df.groupby('SeqID')['EventId'].apply(list)
+
+        grouped = grouped.reset_index()
+        grouped.columns = ['SeqID', 'EventSequence']
+
+        # Zusammenführen der DataFrames anhand der Block-ID
+        merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+        merged_df.drop(columns=[anomaly_file_col], inplace=True)
+
+        # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
+        missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
+        if missing_labels:
+            logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
+
+        if train_data:
+            # Entfernen der anomalen Einträge
+            merged_df = merged_df[merged_df['Label'] == 'Normal']
+            # Setze alle Labels auf 'None'
+            merged_df['Label'] = 'None'
+
+
+    # elif dataset == 'postgres':
+    #     pass
+    #
+    #
+    #
+    #
+    #
+    # # Trainingsdaten haben nicht immer labels. Daher können die nicht immer erwartet werden
+    # if not train_data:
+    #     print("Das wird nicht ausgeführt")
+    #     # Zusammenführen der DataFrames anhand der Block-ID
+    #     merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+    #     merged_df.drop(columns=[anomaly_file_col], inplace=True)
+    # else:
+    #     print("Ja das wird ausgeführt")
+    #     merged_df = grouped
+    #     merged_df['Label'] = 'None'  # Füge die Label-Spalte mit Platzhaltern hinzu
+    #
+    # # Entfernen der anomalen Zeilen
+    # # Beim Training ist das notwendig, um dem Modell das "normale" Verhalten beizubringen
+    # if not train_data and remove_anomalies:
+    #     print("Testtest123")
+    #     # if remove_anomalies:
+    #     merged_df = merged_df[merged_df['Label'] == 'Normal']
+    #
+    #
+    #
+    # # Entfernen von Duplikaten in 'EventSequence'
+    # # merged_df = merged_df.drop_duplicates(subset=['EventSequence'])
+    return merged_df
+
+
+# Nachfolgende Methode 'slice_hdfs' verwendet den 'Sliding Window'-Ansatz für die Vorverarbeitung von Sequenzdaten für LSTM-Modelle.
+# Der 'Sliding Window'-Ansatz ist wichtig, da er hilft, zeitliche Abhängigkeiten in den Daten zu erfassen. Er bietet dem Modell eine Sequenz
+# von vorherigen Ereignissen (Inputs), was ihm ermöglicht, zeitliche Muster und Dynamiken besser zu verstehen.
+# Ein 'Sliding Window' liefert mehr Kontext für jede Vorhersage und hilft, zukünftige Ereignisse basierend auf diesem Kontext vorherzusagen.
+# Die Größe des Fensters ist entscheidend, da sie bestimmt, wie viele vergangene Informationen für die Vorhersage zur Verfügung stehen.
+# Eine geeignete Fenstergröße hilft, das Gleichgewicht zwischen dem Erfassen relevanter Muster und dem Vermeiden irrelevanter Informationen zu finden.
+# Dieser Ansatz wandelt die Daten in einen reichhaltigeren Merkmalssatz um, indem er jedes Fenster effektiv zu einem Vektor von Merkmalen macht.
+def process_windowing(data, use_padding):
+    seq_id, row, window_size = data
+    sequence = row['EventSequence']
+    label = row['Label']
+    seqlen = len(sequence)
+    windows = []
+
+    if use_padding and seqlen < window_size:
+        padded_sequence = sequence + ['#PAD'] * (window_size - seqlen)
+        windows.append([seq_id, padded_sequence, '#PAD', label])
+    else:
+        i = 0
+        while (i + window_size) < seqlen:
+            window_slice = sequence[i: i + window_size]
+            next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
+            windows.append([seq_id, window_slice, next_element, label])
+            i += 1
+    return windows
+
+
+def slice_windows(df, window_size, num_processes, logger, use_padding):
+    data_splits = [(index, row, window_size) for index, row in df.iterrows()]
+    with Pool(num_processes) as pool:
+        results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
+
+    windows = [item for sublist in results for item in sublist]
+    sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])
+    train_x = sliced_windows[['SeqID', 'window', 'label']]
+    train_y = sliced_windows[['SeqID', 'next']]
+
+    return train_x, train_y
+
+def create_label_mapping(df, logger):
+    logger.info("Create label mapping")
+    label_mapping = {'#OOV': 0, '#PAD': 1}
+    next_id_value = 2
+
+    for index, row in df.iterrows():
+        for event_id in row['EventSequence']:
+            if event_id not in label_mapping and event_id != '#PAD':
+                label_mapping[event_id] = next_id_value
+                next_id_value += 1
+    return label_mapping
+
+
+def transform_event_ids(dataset, mapping, logger, mode):
+    # logger.info("Transforming event ids")
+    dataset_transformed = dataset.copy()
+    if mode == 'list':
+        for index, row in dataset.iterrows():
+            dataset_transformed.at[index, 'window'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
+                                                       row['window']]
+    elif mode == 'single':
+        dataset_transformed['next'] = dataset['next'].apply(lambda event_id: mapping.get(event_id, mapping['#OOV']))
+    else:
+        logger.error("Invalid transformation mode")
+
+    return dataset_transformed
+
+
+def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
+    logger.info("Slicing windows")
+    x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
+
+    logger.info("Transforming windows")
+    x_transformed = transform_event_ids(x, mapping, logger, 'list')
+    y_transformed = transform_event_ids(y, mapping, logger, 'single')
+    return x_transformed, y_transformed
+
+
+"""
 # Basisklasse für das Parsen von Log-Dateien
 class Parser:
     def __init__(self, indir, outdir, log_format, rex, parser_type, tau, st, depth, logger):
@@ -236,3 +411,4 @@ class Vectorizer:
                                                         event_id in row['EventSequence']]
 
         return x_transformed
+"""
