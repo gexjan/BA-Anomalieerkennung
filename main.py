@@ -60,7 +60,7 @@ if __name__ == '__main__':
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
-    parser.add_argument('-hptuning', action='store_true', help='Hyperparameter tuning')
+    parser.add_argument('-hptune', action='store_true', help='Hyperparameter tuning')
 
     parser.add_argument('--noparse', action='store_false', help='Skip parsing')
 
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('--input-size', type=int, default='1', help='Model input size')
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
     parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
-    parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
 
@@ -196,9 +196,6 @@ if __name__ == '__main__':
             batch_size = args.batch_size
 
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
-            log = 'adam_batch_size={}_epoch={}_log={}_layers={}_hidden={}_winsize={}_lr={}'.format(
-                str(batch_size), str(epochs), args.log_file, args.num_layers,
-                hidden_size, window_size, learning_rate)
             trained_model = training.train(
                 model,
                 train_loader,
@@ -249,12 +246,12 @@ if __name__ == '__main__':
         f1 = evaluator.evaluate(model)
         evaluator.print_summary()
 
-    if args.hptuning:
+    if args.hptune:
         if not os.path.exists(data_handler_file):
             logger.error("No datahandler file. Rerun with argument -prepare")
             sys.exit(1)
 
-        if not os.path.exists(os.path.join(args.model_dir, args.model_file)):
+        if not os.path.exists(os.path.join(args.data_dir, args.model_file)):
             logger.error("No model trained")
             sys.exit(1)
 
@@ -273,6 +270,82 @@ if __name__ == '__main__':
             logger.info("Loading data")
             with open(data_handler_file, 'rb') as f:
                 data_handler = pickle.load(f)
+
+        def objective(trial, device, train_loader, evaluator, logger):
+            # num_layers = trial.suggest_int('num_layers', 1, 2)
+            hidden_size = trial.suggest_int('hidden_size', 20, 200)
+            learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
+            # Es kann nicht mehr Kandidaten als Klassen geben
+            candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
+            # batch_size = trial.suggest_int('batch_size', 64, 4096)
+
+            input_size = args.input_size
+            epochs = args.epochs
+            window_size = args.window_size
+            num_layers = args.num_layers
+
+            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            trained_model = training.train(
+                model,
+                train_loader,
+                learning_rate,
+                epochs,
+                window_size,
+                logger,
+                device,input_size,
+                evaluator,
+                False
+            )
+
+            f1 = evaluator.evaluate(trained_model)
+            evaluator.print_summary()
+
+            # Löschen des Modells und Freigeben des Speichers
+            del model
+            del trained_model
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+
+            return f1
+
+        train_x, train_y = data_handler.get_prepared_data('train')
+        train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+        num_classes = len(data_handler.get_label_mapping())
+
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger),
+                       n_trials=3, gc_after_trial=True)
+
+        print('Beste Hyperparameter:', study.best_params)
+
+        df = study.trials_dataframe()
+        df.to_csv('data/study_results.csv')
+        optuna.visualization.plot_param_importances(study)
+        optuna.visualization.plot_optimization_history(study)
+
+        # Optimierungsgeschichte
+        fig = vis.plot_optimization_history(study)
+        fig.update_layout(width=800, height=600)  # Ändern Sie die Größe der Figur
+        pio.write_image(fig, 'data/optimization_history.png')  # Speichern Sie die Figur als Bild
+
+        # Parameter-Importanz
+        fig = vis.plot_param_importances(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/param_importances.png')
+
+        # Konturdiagramm für zwei Hyperparameter
+        fig = vis.plot_contour(study, params=['candidates', 'hidden_size'])
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/contour_plot.png')
+
+        # Parallelkoordinaten-Plot
+        fig = vis.plot_parallel_coordinate(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/parallel_coordinate.png')
 
 
 
