@@ -46,7 +46,7 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--dataset', type=str, default='hdfs', choices=['hdfs', 'postgres'],
                         help='Choose the Dataset')
     parser.add_argument('--model', type=str, default='deeplog', choices=['deeplog', 'autoencoder'],
@@ -60,7 +60,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
-    parser.add_argument('-predict', action='store_true', help='Detect anomalies')
+    parser.add_argument('-evaluate', action='store_true', help='Evaluate Model')
     parser.add_argument('-hptune', action='store_true', help='Hyperparameter tuning')
 
     parser.add_argument('--noparse', action='store_false', help='Skip parsing')
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
     parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
-    parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
+    parser.add_argument('--learning-rate', type=float, default='0.001', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
 
@@ -212,7 +212,7 @@ if __name__ == '__main__':
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
 
-    if args.predict:
+    if args.evaluate:
         if not os.path.exists(data_handler_file):
             logger.error("No datahandler file. Rerun with argument -prepare")
             sys.exit(1)
