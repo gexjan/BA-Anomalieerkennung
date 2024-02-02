@@ -3,21 +3,33 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class EvaluationSequenceDataset(Dataset):
-    def __init__(self, df, window_size, pad_value=1):
-        self.data = []
-        for index, row in df.iterrows():
-            sequence = row['EventSequence']
-            label = row['Label'] == 'Anomaly'
-            seqlen = len(sequence)
-            if seqlen < window_size + 1:
-                sequence += [pad_value] * (window_size + 1 - seqlen)
-            for i in range(len(sequence) - window_size):
-                window = sequence[i:i + window_size]
-                next_value = sequence[i + window_size]
-                self.data.append((index, window, next_value, label))
+    def __init__(self, x, y):
+        # self.data = []
+        # for idx in range(len(x)):
+        #     window = x.iloc[idx]['window']
+        #     next_value = y.iloc[idx]['next']
+        #     label = x.iloc[idx]['label'] == 'Anomaly'
+        #     index = x.iloc[idx]['SeqID']
+        #     self.data.append((index, window, next_value, label))
+
+        # Sicherstellen, dass 'x' und 'y' als DataFrames vorliegen
+        assert isinstance(x, pd.DataFrame) and isinstance(y, pd.DataFrame), "x und y müssen Pandas DataFrames sein"
+        # Entfernen der 'SeqID' Spalte aus 'y', um Duplikate zu vermeiden
+        y = y.drop(columns=['SeqID'])
+
+        # Zusammenführen der DataFrames 'x' und 'y' basierend auf einem gemeinsamen Index oder Schlüssel
+        # Hier nehmen wir an, dass 'x' und 'y' die gleiche Länge haben und in der gleichen Reihenfolge sind
+        # Wenn es einen gemeinsamen Schlüssel gibt, verwenden Sie stattdessen pd.merge()
+        combined = pd.concat([x, y], axis=1)
+
+        # Konvertierung der 'label' Spalte zu einem Booleschen Wert, der True ist, wenn das Label 'Anomaly' ist
+        combined['label'] = combined['label'] == 'Anomaly'
+
+        # Erstellen der 'data'-Liste durch Umwandlung des DataFrame in eine Liste von Tupeln
+        self.data = list(combined[['SeqID', 'window', 'next', 'label']].itertuples(index=False, name=None))
 
     def __len__(self):
         return len(self.data)
@@ -25,95 +37,87 @@ class EvaluationSequenceDataset(Dataset):
     def __getitem__(self, idx):
         index, window, next_value, label = self.data[idx]
         return index, torch.tensor(window, dtype=torch.float), next_value, label
+class Evaluator:
+    def __init__(self, args, x, y, device, kwargs, logger, data_percentage):
+        self.args = args
+        self.x = x[:int(len(x) * data_percentage)]
+        self.y = y[:int(len(y) * data_percentage)]
+        self.logger = logger
+        self.device = device
+        self.kwargs = kwargs
 
 
-def get_eval_df(evaluation_df, model, device, candidates, window_size, input_size, logger):
-    logger.info("Predicting values")
-    dataset = EvaluationSequenceDataset(evaluation_df, window_size)
-    dataloader = DataLoader(dataset, batch_size=1024, shuffle=False, pin_memory=True, num_workers=1)
 
-    model.eval()
-    results = []
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating", leave=False):
-            indexes, windows, next_values, labels = batch
-            windows = windows.to(device).view(-1, window_size, input_size)
+    def get_eval_df(self, model, use_tqdm):
+        dataset = EvaluationSequenceDataset(self.x, self.y)
+        dataloader = DataLoader(dataset, batch_size=2048, shuffle=False, pin_memory=True)
+        model.eval()
+        results = []
+        with torch.no_grad():
+            loop = tqdm(dataloader, desc="Predicting", leave=False) if use_tqdm else dataloader
+            for batch in loop:
+                index, windows, next_values, labels = batch
+                _, window_size = windows.shape
+                windows = windows.to(self.device).view(-1, window_size, self.args.input_size)
+                outputs = model(windows)
+                probabilities = torch.softmax(outputs, dim=1)
+                top_vals, top_indices = torch.topk(probabilities, self.args.candidates)
 
-            outputs = model(windows)
-            probabilities = torch.softmax(outputs, dim=1)
-            top_vals, top_indices = torch.topk(probabilities, candidates)
+                for batch_idx, (index, window, next_value, label) in enumerate(
+                        zip(index, windows, next_values, labels)):
+                    predicted = top_indices[batch_idx].tolist()
+                    results.append({
+                        'Index': index.item(),
+                        'Next': next_value.item(),
+                        'Next-Predicted': predicted,
+                        'Label': label.item()
+                    })
 
-            for batch_idx, (index, window, next_value, label) in enumerate(zip(indexes, windows, next_values, labels)):
-                next_in_candidate_predictions = next_value in top_indices[batch_idx]
-                predicted = top_indices[batch_idx].tolist()
-                results.append({
-                    'Index': index.item(),
-                    'Next': next_value.item(),
-                    'Next-Predicted': predicted,
-                    'Label': label.item()
-                })
+        return pd.DataFrame(results)
 
-    return pd.DataFrame(results)
-
-
-def evaluate_group(group):
-    index, group_df = group
-    label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
-    anomaly_detected = False
-
-    for _, row in group_df.iterrows():
-        next_value = row['Next']
-        predicted_values = row['Next-Predicted']
-        if next_value not in predicted_values:
-            anomaly_detected = True
-            break
-
-    if anomaly_detected:
-        if label:  # True Positive
-            return (1, 0, 0, 0)  # TP, TN, FP, FN
-        else:  # False Positive
-            return (0, 0, 1, 0)
-    else:
-        if label:  # False Negative
-            return (0, 0, 0, 1)
-        else:  # True Negative
-            return (0, 1, 0, 0)
-
-
-# def evaluate(evaluation_df, model, device, candidates, window_size, input_size, logger):
-#     prediction_df = get_eval_df(evaluation_df, model, device, candidates, window_size, input_size, logger)
-#     logger.info("Evaluating")
-#     grouped = prediction_df.groupby('Index')
-#
-#     with ProcessPoolExecutor() as executor:
-#         results = list(executor.map(evaluate_group, grouped))
-#
-#     # Summiere die Ergebnisse
-#     TP, TN, FP, FN = map(sum, zip(*results))
-#     return TP, TN, FP, FN
-def evaluate(evaluation_df, model, device, candidates, window_size, input_size, logger):
-    prediction_df = get_eval_df(evaluation_df, model, device, candidates, window_size, input_size, logger)
-    logger.info("Evaluating")
-    grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
-
-    with ProcessPoolExecutor() as executor:
-        # Erstelle ein Future-Objekt für jede Gruppe
-        futures = {executor.submit(evaluate_group, group): group for group in grouped}
+    def evaluate(self, model, use_tqdm=True):
+        prediction_df = self.get_eval_df(model, use_tqdm)
+        self.logger.info("Evaluating")
+        grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
 
         results = []
-        for future in tqdm(as_completed(futures), total=len(grouped), desc="Evaluating", leave=False):
-            result = future.result()
-            results.append(result)
+        loop = tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False) if use_tqdm else grouped
+        for index, group_df in loop:
+            # index, group_df = group
+            label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
 
-    # Summiere die Ergebnisse
-    TP, TN, FP, FN = map(sum, zip(*results))
-    return TP, TN, FP, FN
+            # Angenommen, 'predicted_values' ist eine Spalte, die Listen oder Sets enthält,
+            # und 'Next' ist eine Spalte mit den zu überprüfenden Werten.
 
-def calculate_f1(TP, TN, FP, FN, logger):
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-    f1 = (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
+            # Prüfen, ob 'Next' in der Liste/Set von 'predicted_values' für jede Zeile enthalten ist.
+            # Dies erzeugt eine Serie von Booleschen Werten.
+            anomalies_detected = group_df.apply(lambda row: row['Next'] not in row['Next-Predicted'], axis=1)
 
-    logger.info(
-        f"Evaluation results - TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}, Precision: {precision}, recall: {recall}, f1: {f1}")
-    return f1
+            # Überprüfen, ob mindestens eine Anomalie erkannt wurde
+            anomaly_detected = anomalies_detected.any()
+
+            if anomaly_detected:
+                if label:  # True Positive
+                    results.append((1, 0, 0, 0))  # TP, TN, FP, FN
+                else:  # False Positive
+                    results.append((0, 0, 1, 0))
+            else:
+                if label:  # False Negative
+                    results.append((0, 0, 0, 1))
+                else:  # True Negative
+                    results.append((0, 1, 0, 0))
+
+        # Summiere die Ergebnisse
+        self.TP, self.TN, self.FP, self.FN = map(sum, zip(*results))
+        return self.calculate_f1(self.TP, self.TN, self.FP, self.FN)
+
+
+    def calculate_f1(self, TP, TN, FP, FN):
+        self.precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+        self.recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+        self.f1= (2 * TP) / (2 * TP + FP + FN) if (2 * TP + FP + FN) > 0 else 0
+        return self.f1
+
+    def print_summary(self):
+        self.logger.info(
+            f"Evaluation results - TP: {self.TP}, TN: {self.TN}, FP: {self.FP}, FN: {self.FN}, Precision: {self.precision}, recall: {self.recall}, f1: {self.f1}")

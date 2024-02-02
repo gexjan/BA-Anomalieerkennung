@@ -1,5 +1,6 @@
 import argparse
-from util import preprocessing
+from util.preprocessing import group_entries, slice_windows, create_label_mapping, transform_event_ids, \
+    slice_and_transform_seqs
 import os
 import logging
 import pandas as pd
@@ -12,11 +13,14 @@ import numpy as np
 from util import training
 from util import evaluation
 import optuna
-import sys
 import optuna.visualization as vis
-import matplotlib.pyplot as plt
 import plotly.io as pio
+from util.datahandler import DataHandler
+import sys
+from util.evaluation import Evaluator
 
+from util.training import get_dataloader
+from datetime import timedelta
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
@@ -52,33 +56,313 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, default='./data/', help='The place where to store the data')
     parser.add_argument('--log-dir', type=str, default='./logs/HDFS', help='The folder with the log-files')
     parser.add_argument('--log-file', type=str, default='hdfs_train.log', help='The log used for training')
+    parser.add_argument('--model-file', type=str, default='lstm_model.pth', help='The name of the trained model')
 
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
     parser.add_argument('-predict', action='store_true', help='Detect anomalies')
-    parser.add_argument('-hptuning', action='store_true', help='Hyperparameter tuning')
+    parser.add_argument('-hptune', action='store_true', help='Hyperparameter tuning')
+
+    parser.add_argument('--noparse', action='store_false', help='Skip parsing')
 
     parser.add_argument('--parser-type', type=str, default='spell', choices=['spell', 'drain'],
                         help='Choose the parser')
     parser.add_argument('--window-size', type=int, default='10', help='Size of the windows')
-    parser.add_argument('--grouping', type=str, default='sliding', choices=['sliding', 'session'],
-                        help='Group entries by sliding window or session')
 
     ## Training
     parser.add_argument('--batch-size', type=int, default='2048', help='Input batch size for training')
     parser.add_argument('--input-size', type=int, default='1', help='Model input size')
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
     parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
-    parser.add_argument('--epochs', type=int, default='10', help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default='0.001', help='Learning rate')
+    parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
+    parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
 
     ## Evaluation
-    parser.add_argument('--validation-file', type=str, default='hdfs_test.log',
+    parser.add_argument('--evaluation-file', type=str, default='hdfs_test.log',
                         help='File to validate the model. Must contain normal and anormal entries.')
     parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
                         help='Contains the labels for the validation file')
     parser.add_argument('--candidates', type=int, default=9, help=("Number of prediction candidates"))
     args = parser.parse_args()
+
+    data_handler_file = os.path.join(args.data_dir, 'datahandler.pkl')
+
+    if args.prepare:
+
+        data_handler = DataHandler.create(args, logger)
+
+        if args.noparse:
+            data_handler.parse()
+        data_handler.read_structured_files()
+
+        # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
+        anomaly_file = data_handler.read_anomaly_file()
+
+        # Gruppieren der Einträge nach der Block-ID
+        # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
+        # EventSequence ist eine Liste von EventIDs
+        # Wichtig: Bei den Trainingsdaten müssen alle Anomalien entfernt werden
+        data_handler.set_grouped_data(
+            group_entries(args.dataset,
+                          data_handler.get_structured_data('train'),
+                          anomaly_file,
+                          logger,
+                          True),
+            'train')
+        data_handler.set_grouped_data(
+            group_entries(args.dataset,
+                          data_handler.get_structured_data('eval'),
+                          anomaly_file,
+                          logger,
+                          False),
+            'eval')
+
+        # Umwandeln von EventIDs zu numerischen IDs
+        # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
+        # Das Wörterbuch soll nur die Werte aus dem Trainingsdatensatz enthalten
+        data_handler.set_label_mapping(
+            create_label_mapping(data_handler.get_grouped_data('train'),logger)
+        )
+
+        # Anzahl der Prozesse beim Slicen
+        num_processes = 10
+
+        # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
+        # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
+        x_transformed, y_transformed = slice_and_transform_seqs(
+            data_handler.get_grouped_data('train'),
+            args.window_size,
+            num_processes,
+            data_handler.get_label_mapping(),
+            logger,
+            use_padding=False
+        )
+
+        data_handler.set_prepared_data(x_transformed, y_transformed, 'train')
+
+        # # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
+        x_transformed, y_transformed = slice_and_transform_seqs(
+            data_handler.get_grouped_data('eval'),
+            args.window_size,
+            num_processes,
+            data_handler.get_label_mapping(),
+            logger,
+            use_padding=True
+        )
+
+        data_handler.set_prepared_data(x_transformed, y_transformed, 'eval')
+
+        # Speichern des Datahandler-Objekts in einer Datei
+        with open(data_handler_file, 'wb') as f:
+            pickle.dump(data_handler, f)
+
+    if args.train:
+        if not os.path.exists(data_handler_file):
+            logger.error("No datahandler file. Rerun with argument -prepare")
+            sys.exit(1)
+
+        try:
+            data_handler
+        except NameError:
+            logger.info("Loading data")
+            with open(data_handler_file, 'rb') as f:
+                    data_handler = pickle.load(f)
+
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        train_x, train_y = data_handler.get_prepared_data('train')
+
+        train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+        num_classes = len(data_handler.get_label_mapping())
+
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+        if args.model == 'deeplog':
+            input_size = args.input_size
+            hidden_size = args.hidden_size
+            num_layers = args.num_layers
+            learning_rate = args.learning_rate
+            epochs = args.epochs
+            window_size = args.window_size
+            batch_size = args.batch_size
+
+            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            trained_model = training.train(
+                model,
+                train_loader,
+                learning_rate,
+                epochs,
+                window_size,
+                logger,
+                device,
+                input_size,
+                evaluator,
+                args.calculate_f)
+
+            save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
+
+    if args.predict:
+        if not os.path.exists(data_handler_file):
+            logger.error("No datahandler file. Rerun with argument -prepare")
+            sys.exit(1)
+
+        if not os.path.exists(os.path.join(args.data_dir, args.model_file)):
+            logger.error("No model trained")
+            sys.exit(1)
+
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        try:
+            data_handler
+        except NameError:
+            logger.info("Loading data")
+            with open(data_handler_file, 'rb') as f:
+                data_handler = pickle.load(f)
+
+        try:
+            model = trained_model
+        except NameError:
+            model = load_model(args.data_dir, device, args.model_file, logger)
+
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+        f1 = evaluator.evaluate(model)
+        evaluator.print_summary()
+
+    if args.hptune:
+        if not os.path.exists(data_handler_file):
+            logger.error("No datahandler file. Rerun with argument -prepare")
+            sys.exit(1)
+
+        if not os.path.exists(os.path.join(args.data_dir, args.model_file)):
+            logger.error("No model trained")
+            sys.exit(1)
+
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        try:
+            data_handler
+        except NameError:
+            logger.info("Loading data")
+            with open(data_handler_file, 'rb') as f:
+                data_handler = pickle.load(f)
+
+        def objective(trial, device, train_loader, evaluator, logger):
+            # num_layers = trial.suggest_int('num_layers', 1, 2)
+            hidden_size = trial.suggest_int('hidden_size', 20, 200)
+            learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
+            # Es kann nicht mehr Kandidaten als Klassen geben
+            candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
+            # batch_size = trial.suggest_int('batch_size', 64, 4096)
+
+            input_size = args.input_size
+            epochs = args.epochs
+            window_size = args.window_size
+            num_layers = args.num_layers
+
+            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            trained_model = training.train(
+                model,
+                train_loader,
+                learning_rate,
+                epochs,
+                window_size,
+                logger,
+                device,input_size,
+                evaluator,
+                False
+            )
+
+            f1 = evaluator.evaluate(trained_model)
+            evaluator.print_summary()
+
+            # Löschen des Modells und Freigeben des Speichers
+            del model
+            del trained_model
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+
+            return f1
+
+        train_x, train_y = data_handler.get_prepared_data('train')
+        train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+        num_classes = len(data_handler.get_label_mapping())
+
+        eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger),
+                       n_trials=args.hptrials, gc_after_trial=True)
+
+        print('Beste Hyperparameter:', study.best_params)
+
+        # Sammle die Laufzeiten aller Trials
+        durations = [trial.datetime_complete - trial.datetime_start for trial in study.trials if
+                     trial.datetime_complete and trial.datetime_start]
+
+        # Berechne die Summe der Laufzeiten
+        total_duration = sum(durations, timedelta())
+
+        # Berechne die durchschnittliche Laufzeit
+        average_duration = total_duration / len(durations)
+
+        logger.info(f'Durchschnittliche Laufzeit eines Trials: {average_duration}')
+
+        df = study.trials_dataframe()
+        df.to_csv('data/study_results.csv')
+        optuna.visualization.plot_param_importances(study)
+        optuna.visualization.plot_optimization_history(study)
+
+        # Optimierungsgeschichte
+        fig = vis.plot_optimization_history(study)
+        fig.update_layout(width=800, height=600)  # Ändern Sie die Größe der Figur
+        pio.write_image(fig, 'data/optimization_history.png')  # Speichern Sie die Figur als Bild
+
+        # Parameter-Importanz
+        fig = vis.plot_param_importances(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/param_importances.png')
+
+        # Konturdiagramm für zwei Hyperparameter
+        fig = vis.plot_contour(study, params=['candidates', 'hidden_size'])
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/contour_plot.png')
+
+        # Parallelkoordinaten-Plot
+        fig = vis.plot_parallel_coordinate(study)
+        fig.update_layout(width=800, height=600)
+        pio.write_image(fig, 'data/parallel_coordinate.png')
+
+
+
 
     # Vorbereitung der Log-Dateien:
     # - Parsen der Log-Dateien
@@ -87,7 +371,9 @@ if __name__ == '__main__':
     # - Umwandeln der Event-IDs in numerische IDs
     # - Speichern des erzeugten Datensatzes und des Mappings der Event-IDs zu numerischen IDs
     # - Das speichern des erzeugten Datensatzes, sowie des Mappings der Event-IDs zu numerischen IDs
+"""
     if args.prepare:
+
         if args.dataset == 'hdfs':
 
             # Parsen der Log-Dateien
@@ -124,7 +410,8 @@ if __name__ == '__main__':
             # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
             # train_x, train_y = preprocessing.slice_hdfs(grouped_hdfs, args.grouping, args.window_size, logger)
             num_processes = 12
-            train_x, train_y = preprocessing.slice_hdfs_parallel(grouped_hdfs, args.grouping, args.window_size, num_processes, logger)
+            train_x, train_y = preprocessing.slice_hdfs_parallel(grouped_hdfs, args.grouping, args.window_size,
+                                                                 num_processes, logger)
 
             # Umwandeln von EventIDs zu numerischen IDs
             # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
@@ -188,7 +475,7 @@ if __name__ == '__main__':
                 str(batch_size), str(epochs), args.log_file, args.num_layers,
                 hidden_size, window_size, learning_rate)
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
-                                          input_size)
+                                           input_size)
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.model_dir)
 
@@ -254,7 +541,8 @@ if __name__ == '__main__':
                         f.write(' '.join(map(str, sequence)) + '\n')
 
                 model = load_model(args.model_dir, device)
-                TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates, args.window_size, args.input_size, logger)
+                TP, TN, FP, FN = evaluation.evaluate(validate_x_transformed, model, device, args.candidates,
+                                                     args.window_size, args.input_size, logger)
                 print(evaluation.calculate_f1(TP, TN, FP, FN, logger))
 
             elif args.dataset == 'postgres':
@@ -291,7 +579,8 @@ if __name__ == '__main__':
             trained_model = training.train(model, train_loader, learning_rate, epochs, window_size, logger, log, device,
                                            input_size)
 
-            TP, TN, FP, FN = evaluation.evaluate(x_validate, trained_model, device, candidates, window_size, input_size, logger)
+            TP, TN, FP, FN = evaluation.evaluate(x_validate, trained_model, device, candidates, window_size, input_size,
+                                                 logger)
             print(x_validate)
 
             # Löschen des Modells und Freigeben des Speichers
@@ -301,6 +590,7 @@ if __name__ == '__main__':
                 torch.cuda.empty_cache()
 
             return evaluation.calculate_f1(TP, TN, FP, FN, logger)
+
 
         logger.info("Loading Data")
         train_x, train_y, label_mapping = training.load_data(args.data_dir, args.log_file)
@@ -328,7 +618,8 @@ if __name__ == '__main__':
 
         # Starte Optuna Studie
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed), n_trials=10, gc_after_trial=True)
+        study.optimize(lambda trial: objective(trial, device, train_loader, logger, validate_x_transformed),
+                       n_trials=10, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
 
@@ -356,3 +647,4 @@ if __name__ == '__main__':
         fig = vis.plot_parallel_coordinate(study)
         fig.update_layout(width=800, height=600)
         pio.write_image(fig, 'parallel_coordinate.png')
+"""
