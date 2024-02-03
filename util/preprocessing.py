@@ -122,13 +122,13 @@ def process_windowing(data, use_padding):
     windows = []
 
     if use_padding and seqlen < window_size:
-        padded_sequence = sequence + ['#PAD'] * (window_size - seqlen)
-        windows.append([seq_id, padded_sequence, '#PAD', label])
+        padded_sequence = sequence + [1] * (window_size - seqlen) # 1 entspricht '#PAD'
+        windows.append([seq_id, padded_sequence, 1, label]) # 1 entspricht '#PAD'
     else:
         i = 0
         while (i + window_size) < seqlen:
             window_slice = sequence[i: i + window_size]
-            next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
+            next_element = sequence[i + window_size] if (i + window_size) < seqlen else 1 # 1 entspricht '#PAD'
             windows.append([seq_id, window_slice, next_element, label])
             i += 1
     return windows
@@ -159,30 +159,25 @@ def create_label_mapping(df, logger):
     return label_mapping
 
 
-def transform_event_ids(dataset, mapping, logger, mode):
-    # logger.info("Transforming event ids")
+def transform_event_ids(dataset, mapping, logger):
     dataset_transformed = dataset.copy()
-    if mode == 'list':
-        for index, row in dataset.iterrows():
-            dataset_transformed.at[index, 'window'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
-                                                       row['window']]
-    elif mode == 'single':
-        dataset_transformed['next'] = dataset['next'].apply(lambda event_id: mapping.get(event_id, mapping['#OOV']))
-    else:
-        logger.error("Invalid transformation mode")
+    for index, row in dataset.iterrows():
+        dataset_transformed.at[index, 'EventSequence'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
+                                                   row['EventSequence']]
 
     return dataset_transformed
 
-
 def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
-    logger.info("Slicing windows")
-    x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
-
+    print(df)
     logger.info("Transforming windows")
-    x_transformed = transform_event_ids(x, mapping, logger, 'list')
-    y_transformed = transform_event_ids(y, mapping, logger, 'single')
-    return x_transformed, y_transformed
+    df_transformed = transform_event_ids(df, mapping, logger)
+    print("X2: ", df_transformed)
 
+    logger.info("Slicing windows")
+    x, y = slice_windows(df_transformed, window_size, num_processes, logger, use_padding)
+    print("X: ", x)
+    print("Y: ", y)
+    return x, y
 
 """
 # Basisklasse für das Parsen von Log-Dateien
