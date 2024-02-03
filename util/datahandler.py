@@ -4,6 +4,7 @@ from logparser.Drain import LogParser as DrainParser
 from util.preprocessing import postgres_to_singleline
 import os
 import pandas as pd
+from util.preprocessing import slice_and_transform_seqs
 
 
 class DataHandler:

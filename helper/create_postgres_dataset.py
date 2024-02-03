@@ -138,10 +138,10 @@ def write_log_entries(df, file_path):
 
 if __name__ == '__main__':
     base_dir = '../logs/postgres'
-    db_dir = '029e'
+    db_dir = 'summarized'
     log_dir = os.path.join(base_dir, db_dir)
 
-    log_file = 'postgresql-05.log'
+    log_file = 'postgresql029e.log'
     multiline_path = os.path.join(log_dir, log_file)
     print(multiline_path)
 
@@ -152,6 +152,7 @@ if __name__ == '__main__':
     labels_file_path = os.path.join(base_dir, 'anomaly_label.csv')
 
 
+    test_size = 0.9
 
     multiline_to_singleline(multiline_path, log_file_path)
 
@@ -162,7 +163,7 @@ if __name__ == '__main__':
     # print(f"Entfernte PIDs aufgrund unerwünschter Nachrichten: {removed_pids}")
 
     unique_pids = filtered_log_df['pid'].unique()
-    train_pids, test_pids = train_test_split(unique_pids, test_size=0.60, random_state=42)
+    train_pids, test_pids = train_test_split(unique_pids, test_size=test_size, random_state=42)
 
     train_df = filtered_log_df[filtered_log_df['pid'].isin(train_pids)].copy()
     test_df = filtered_log_df[filtered_log_df['pid'].isin(test_pids)].copy()
