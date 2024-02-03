@@ -46,17 +46,33 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
+
+    # Initialer Parser, um den Dataset-Typ zu ermitteln
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument('--dataset', type=str, choices=['hdfs', 'postgres'], default='hdfs')
+    pre_args, remaining_argv = pre_parser.parse_known_args()
+
+    if pre_args.dataset == 'postgres':
+        log_file_default = 'postgres_train.log'
+        evaluation_file_default = 'postgres_test.log'
+        log_dir_default = './logs/postgres'
+    else:
+        log_file_default = 'hdfs_train.log'
+        evaluation_file_default = 'hdfs_test.log'
+        log_dir_default = './logs/HDFS'
+
+
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--dataset', type=str, default='hdfs', choices=['hdfs', 'postgres'],
+    parser.add_argument('--dataset', type=str, default=pre_args.dataset, choices=['hdfs', 'postgres'],
                         help='Choose the Dataset')
     parser.add_argument('--model', type=str, default='deeplog', choices=['deeplog', 'autoencoder'],
                         help='Choose the model')
     parser.add_argument('--model-dir', type=str, default='./model/',
                         help='The place where to store the model parameter')
     parser.add_argument('--data-dir', type=str, default='./data/', help='The place where to store the data')
-    parser.add_argument('--log-dir', type=str, default='./logs/HDFS', help='The folder with the log-files')
-    parser.add_argument('--log-file', type=str, default='hdfs_train.log', help='The log used for training')
-    parser.add_argument('--model-file', type=str, default='lstm_model.pth', help='The name of the trained model')
+    parser.add_argument('--log-dir', type=str, default=log_dir_default, help='The folder with the log-files')
+    parser.add_argument('--log-file', type=str, default=log_file_default, help='The log used for training')
+    parser.add_argument('--model-file', type=str, help='The name of the trained model')
 
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
@@ -80,15 +96,20 @@ if __name__ == '__main__':
     parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
 
     ## Evaluation
-    parser.add_argument('--evaluation-file', type=str, default='hdfs_test.log',
+    parser.add_argument('--evaluation-file', type=str, default=evaluation_file_default,
                         help='File to validate the model. Must contain normal and anormal entries.')
     parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
                         help='Contains the labels for the validation file')
     parser.add_argument('--candidates', type=int, default=9, help=("Number of prediction candidates"))
     args = parser.parse_args()
 
-    data_handler_file = os.path.join(args.data_dir, 'datahandler.pkl')
+    if not args.model_file:
+        args.model_file = f"{args.dataset}_bs{args.batch_size}_layers{args.num_layers}_hidden{args.hidden_size}_epochs{args.epochs}_lr{args.learning_rate}.pth"
 
+    data_handler_file = os.path.join(args.data_dir, f"datahandler_{args.dataset}_{args.log_file}_{args.evaluation_file}_{args.parser_type}_{args.window_size}.pkl")
+
+    print(args.log_file)
+    print(args.evaluation_file)
     if args.prepare:
 
         data_handler = DataHandler.create(args, logger)

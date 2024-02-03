@@ -138,11 +138,18 @@ def write_log_entries(df, file_path):
 
 if __name__ == '__main__':
 
-    multiline_path = 'postgresql-03.log'
-    log_file_path = multiline_path + '_singleline'
-    test_log_file_path = 'postgres_test.log'
-    train_log_file_path = 'postgres_train.log'
-    labels_file_path = 'anomaly_label_postgres.csv'
+    log_dir = '../logs/postgres/029e'
+    log_file = 'postgresql-03.log'
+    multiline_path = os.path.join(log_dir, log_file)
+
+    data_dir = '../data/'
+    log_file_path = os.path.join(data_dir, log_file)
+
+    test_log_file_path = os.path.join(data_dir, 'postgres_test.log')
+    train_log_file_path = os.path.join(data_dir, 'postgres_train.log')
+    labels_file_path = os.path.join(data_dir, 'anomaly_label_postgres.csv')
+
+
 
     multiline_to_singleline(multiline_path, log_file_path)
 
@@ -150,7 +157,7 @@ if __name__ == '__main__':
 
     # Filtern der Daten
     filtered_log_df, removed_pids = filter_groups(log_df)
-    print(f"Entfernte PIDs aufgrund unerwünschter Nachrichten: {removed_pids}")
+    # print(f"Entfernte PIDs aufgrund unerwünschter Nachrichten: {removed_pids}")
 
     unique_pids = filtered_log_df['pid'].unique()
     train_pids, test_pids = train_test_split(unique_pids, test_size=0.60, random_state=42)
@@ -162,7 +169,7 @@ if __name__ == '__main__':
     template_list = [
         [4, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
         [2, ["Starting connection", "Authorizing", "No IP"], []],
-        [5, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
+        [50, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
     ]
 
     test_df['datetime'] = pd.to_datetime(test_df['date'] + ' ' + test_df['time'])
