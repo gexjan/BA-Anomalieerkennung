@@ -134,7 +134,10 @@ def process_windowing(data, use_padding):
     return windows
 
 
-def slice_windows(df, window_size, num_processes, logger, use_padding):
+def slice_windows(df, window_size, logger, use_padding):
+    logger.info("Slicing windows")
+    # Anzahl der Prozesse beim Slicen
+    num_processes = 10
     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
     with Pool(num_processes) as pool:
         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
@@ -160,25 +163,13 @@ def create_label_mapping(df, logger):
 
 
 def transform_event_ids(dataset, mapping, logger):
+    logger.info("Transforming IDs")
     dataset_transformed = dataset.copy()
     for index, row in dataset.iterrows():
         dataset_transformed.at[index, 'EventSequence'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
                                                    row['EventSequence']]
 
     return dataset_transformed
-
-def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
-    print(df)
-    logger.info("Transforming windows")
-    df_transformed = transform_event_ids(df, mapping, logger)
-    print("X2: ", df_transformed)
-
-    logger.info("Slicing windows")
-    x, y = slice_windows(df_transformed, window_size, num_processes, logger, use_padding)
-    print("X: ", x)
-    print("Y: ", y)
-    return x, y
-
 """
 # Basisklasse für das Parsen von Log-Dateien
 class Parser:

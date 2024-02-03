@@ -1,16 +1,16 @@
 from logparser.Spell import LogParser as SpellParser
 from logparser.Drain import LogParser as DrainParser
 
-from util.preprocessing import postgres_to_singleline
+from util.preprocessing import postgres_to_singleline, slice_windows
 import os
 import pandas as pd
-from util.preprocessing import slice_and_transform_seqs
 
 
 class DataHandler:
-    def __init__(self, args, logger):
+    def __init__(self, args, logger, window_size):
         self.args = args
         self.logger = logger
+        self.window_size = window_size
 
     def get_parse_params(self):
         # Diese Methode sollte in den Subklassen überschrieben werden
@@ -31,11 +31,11 @@ class DataHandler:
             raise ValueError("Unbekannter Parser-Typ")
 
     @staticmethod
-    def create(args, logger):
+    def create(args, logger, window_size):
         if args.dataset == 'hdfs':
-            return HDFSDataHandler(args, logger)
+            return HDFSDataHandler(args, logger, window_size)
         elif args.dataset == 'postgres':
-            return PostgresDataHandler(args, logger)
+            return PostgresDataHandler(args, logger, window_size)
         else:
             raise ValueError("Unbekannter Datensatz")
 
@@ -60,6 +60,12 @@ class DataHandler:
     def get_grouped_data(self, data_type):
         return getattr(self, f"df_grouped_{data_type}")
 
+    def set_transformed_data(self, df, data_type):
+        setattr(self, f"df_transformed_{data_type}", df)
+
+    def get_transformed_data(self, data_type):
+        return getattr(self, f"df_transformed_{data_type}")
+
     def set_prepared_data(self, x, y, data_type):
         setattr(self, f"df_prepared_x_{data_type}", x)
         setattr(self, f"df_prepared_y_{data_type}", y)
@@ -73,9 +79,20 @@ class DataHandler:
     def get_label_mapping(self):
         return self.label_mapping
 
+    def check_new_window_size(self, window_size):
+        return not self.window_size != window_size
+
+    def update_window_size(self, window_size, logger):
+        if self.check_new_window_size(window_size):
+            x_train, y_train = slice_windows(self.get_transformed_data('train'), window_size, logger, False)
+            x_eval, y_eval = slice_windows(self.get_transformed_data('eval'), window_size, logger, True)
+
+            self.set_prepared_data(x_train, y_train, 'train')
+            self.set_prepared_data(x_eval, y_eval, 'eval')
+
 class HDFSDataHandler(DataHandler):
-    def __init__(self, args, logger):
-        super().__init__(args, logger)
+    def __init__(self, args, logger, window_size):
+        super().__init__(args, logger, window_size)
         # Spezifische Initialisierung für HDFSDataHandler
 
     def get_parse_params(self):
@@ -98,8 +115,8 @@ class HDFSDataHandler(DataHandler):
 
 
 class PostgresDataHandler(DataHandler):
-    def __init__(self, args, logger):
-        super().__init__(args, logger)
+    def __init__(self, args, logger, window_size):
+        super().__init__(args, logger, window_size)
         # Spezifische Initialisierung für PostgresDataHandler
 
     def get_parse_params(self):

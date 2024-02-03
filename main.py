@@ -1,6 +1,5 @@
 import argparse
-from util.preprocessing import group_entries, slice_windows, create_label_mapping, transform_event_ids, \
-    slice_and_transform_seqs
+from util.preprocessing import group_entries, slice_windows, create_label_mapping, transform_event_ids
 import os
 import logging
 import pandas as pd
@@ -110,7 +109,7 @@ if __name__ == '__main__':
 
     if args.prepare:
 
-        data_handler = DataHandler.create(args, logger)
+        data_handler = DataHandler.create(args, logger, args.window_size)
 
         if args.noparse:
             data_handler.parse()
@@ -145,33 +144,34 @@ if __name__ == '__main__':
             create_label_mapping(data_handler.get_grouped_data('train'),logger)
         )
 
-        # Anzahl der Prozesse beim Slicen
-        num_processes = 10
+
+        data_handler.set_transformed_data(
+            transform_event_ids(
+                data_handler.get_grouped_data('train'),
+                data_handler.get_label_mapping(),
+                logger
+            ),
+            'train'
+        )
+
+        data_handler.set_transformed_data(
+            transform_event_ids(
+                data_handler.get_grouped_data('eval'),
+                data_handler.get_label_mapping(),
+                logger
+            ),
+            'eval'
+        )
 
         # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
-        x_transformed, y_transformed = slice_and_transform_seqs(
-            data_handler.get_grouped_data('train'),
-            args.window_size,
-            num_processes,
-            data_handler.get_label_mapping(),
-            logger,
-            use_padding=False
-        )
+        x_train, y_train = slice_windows(data_handler.get_transformed_data('train'), args.window_size, logger, use_padding=False)
+        data_handler.set_prepared_data(x_train, y_train, 'train')
 
-        data_handler.set_prepared_data(x_transformed, y_transformed, 'train')
+        x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True)
+        data_handler.set_prepared_data(x_eval, y_eval, 'eval')
 
-        # # Hier wird bereits Padding verwendet. Zu kurze Sequenzen und der next-value werden aufgefüllt
-        x_transformed, y_transformed = slice_and_transform_seqs(
-            data_handler.get_grouped_data('eval'),
-            args.window_size,
-            num_processes,
-            data_handler.get_label_mapping(),
-            logger,
-            use_padding=True
-        )
 
-        data_handler.set_prepared_data(x_transformed, y_transformed, 'eval')
 
         # Speichern des Datahandler-Objekts in einer Datei
         with open(data_handler_file, 'wb') as f:
@@ -231,6 +231,7 @@ if __name__ == '__main__':
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
 
+
     if args.evaluate:
         if not os.path.exists(data_handler_file):
             logger.error("No datahandler file. Rerun with argument -prepare")
@@ -264,7 +265,7 @@ if __name__ == '__main__':
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
         evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
-        f1 = evaluator.evaluate(model)
+        f1 = evaluator.evaluate(model, args.candidates)
         evaluator.print_summary()
 
     if args.hptune:
@@ -318,7 +319,7 @@ if __name__ == '__main__':
                 False
             )
 
-            f1 = evaluator.evaluate(trained_model)
+            f1 = evaluator.evaluate(trained_model, candidates)
             evaluator.print_summary()
 
             # Löschen des Modells und Freigeben des Speichers
