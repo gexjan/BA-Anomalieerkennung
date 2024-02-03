@@ -169,9 +169,9 @@ if __name__ == '__main__':
 
     # Liste der hinzuzufügenden Anomalien
     template_list = [
-        [4, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
-        [2, ["Starting connection", "Authorizing", "No IP"], []],
-        [5, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
+        [1, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
+        [1, ["Starting connection", "Authorizing", "No IP"], []],
+        [22, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
     ]
 
     test_df['datetime'] = pd.to_datetime(test_df['date'] + ' ' + test_df['time'])
@@ -192,17 +192,21 @@ if __name__ == '__main__':
 
     # Extrahiere PIDs, die im ursprünglichen Test-Datensatz vorhanden waren, sind "normal"
     original_pids = test_df['pid'].unique()
+    print(original_pids)
+    print(len(original_pids))
 
     # Erstelle eine Liste aller PIDs im kombinierten DataFrame
     combined_pids = test_df_combined['pid'].unique()
+    print(len(combined_pids))
 
     # Bestimme die PIDs der künstlich hinzugefügten Einträge
     artificial_pids = [pid for pid in combined_pids if pid not in original_pids]
+    print(artificial_pids)
 
     # Erstelle ein DataFrame für die Labels
     labels_df = pd.DataFrame({
         'pid': combined_pids,
-        'label': ['anomaly' if pid in artificial_pids else 'normal' for pid in combined_pids]
+        'Label': ['Anomaly' if pid in artificial_pids else 'Normal' for pid in combined_pids]
     })
 
 
@@ -211,3 +215,18 @@ if __name__ == '__main__':
 
     write_log_entries(test_df_combined, test_log_file_path)
     write_log_entries(train_df, train_log_file_path)
+
+    # Laden der anomaly_label.csv
+    anomaly_label_df = pd.read_csv(labels_file_path)
+
+    # Umwandeln der 'pid' Spalte zu int, falls sie noch nicht vom Typ int ist
+    anomaly_label_df['pid'] = anomaly_label_df['pid'].astype(int)
+
+    # Finden der PIDs, die in der Log-Datei vorkommen, aber nicht in der anomaly_label.csv
+    missing_pids_in_labels = set(combined_pids) - set(anomaly_label_df['pid'])
+
+    # Überprüfen, ob es fehlende PIDs gibt und Ausgabe
+    if missing_pids_in_labels:
+        print(f"Fehlende PIDs in anomaly_label.csv: {missing_pids_in_labels}")
+    else:
+        print("Alle PIDs der Log-Datei kommen in der anomaly_label.csv vor.")
