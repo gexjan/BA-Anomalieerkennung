@@ -6,8 +6,8 @@ import os
 import re
 
 # Parameter für den Anteil der Testdaten, die verwendet werden sollen
-test_data_usage_percentage =  0.01 # z.B. 1.0 für 100% der Testdaten
-train_data_usage_percentage =  0.05 # z.B. 1.0 für 100% der Trainingsdaten
+test_data_usage_percentage =  0.001 # z.B. 1.0 für 100% der Testdaten
+train_data_usage_percentage =  0.001 # z.B. 1.0 für 100% der Trainingsdaten
 
 log_dir = '../logs/HDFS/'
 log_file = 'HDFS.log'
