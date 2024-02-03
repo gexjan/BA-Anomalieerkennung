@@ -108,8 +108,6 @@ if __name__ == '__main__':
 
     data_handler_file = os.path.join(args.data_dir, f"datahandler_{args.dataset}_{args.log_file}_{args.evaluation_file}_{args.parser_type}_{args.window_size}.pkl")
 
-    print(args.log_file)
-    print(args.evaluation_file)
     if args.prepare:
 
         data_handler = DataHandler.create(args, logger)

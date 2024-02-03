@@ -70,36 +70,40 @@ def group_entries(dataset, df, anomaly_df, logger, train_data):
             # Setze alle Labels auf 'None'
             merged_df['Label'] = 'None'
 
+    if dataset == 'postgres':
+        anomaly_file_col = 'pid'
+        regex_pattern = re.compile(r'\[(\d+)\]')
 
-    # elif dataset == 'postgres':
-    #     pass
-    #
-    #
-    #
-    #
-    #
-    # # Trainingsdaten haben nicht immer labels. Daher können die nicht immer erwartet werden
-    # if not train_data:
-    #     print("Das wird nicht ausgeführt")
-    #     # Zusammenführen der DataFrames anhand der Block-ID
-    #     merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
-    #     merged_df.drop(columns=[anomaly_file_col], inplace=True)
-    # else:
-    #     print("Ja das wird ausgeführt")
-    #     merged_df = grouped
-    #     merged_df['Label'] = 'None'  # Füge die Label-Spalte mit Platzhaltern hinzu
-    #
-    # # Entfernen der anomalen Zeilen
-    # # Beim Training ist das notwendig, um dem Modell das "normale" Verhalten beizubringen
-    # if not train_data and remove_anomalies:
-    #     print("Testtest123")
-    #     # if remove_anomalies:
-    #     merged_df = merged_df[merged_df['Label'] == 'Normal']
-    #
-    #
-    #
-    # # Entfernen von Duplikaten in 'EventSequence'
-    # # merged_df = merged_df.drop_duplicates(subset=['EventSequence'])
+        df['SeqID'] = df['PID'].apply(
+            lambda x: int(regex_pattern.search(x).group(1)) if regex_pattern.search(x) else None)
+
+        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+        grouped = df.groupby('SeqID')['EventId'].apply(list)
+        grouped = grouped.reset_index()
+        grouped.columns = ['SeqID', 'EventSequence']
+
+        if train_data:
+            grouped['Label'] = None
+            merged_df = grouped
+
+        else:
+        # Zusammenführen der DataFrames anhand der Block-ID
+            merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+            merged_df.drop(columns=[anomaly_file_col], inplace=True)
+
+            # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
+            missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
+            if missing_labels:
+                logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
+
+    # Durchschnittliche Gruppenlänge + Median
+    avg_group_length = grouped['EventSequence'].apply(len).mean()
+    median_group_length = grouped['EventSequence'].apply(len).median()
+
+    data_type = "Training" if train_data else "Testing"
+    logger.info(
+        f"{data_type} data: Average group length: {avg_group_length}; Median group length: {median_group_length}")
+
     return merged_df
 
 
