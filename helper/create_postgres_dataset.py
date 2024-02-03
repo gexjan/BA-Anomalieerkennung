@@ -137,17 +137,19 @@ def write_log_entries(df, file_path):
 
 
 if __name__ == '__main__':
+    base_dir = '../logs/postgres'
+    db_dir = '029e'
+    log_dir = os.path.join(base_dir, db_dir)
 
-    log_dir = '../logs/postgres/029e'
-    log_file = 'postgresql-03.log'
+    log_file = 'postgresql-05.log'
     multiline_path = os.path.join(log_dir, log_file)
+    print(multiline_path)
 
-    data_dir = '../data/'
-    log_file_path = os.path.join(data_dir, log_file)
+    log_file_path = os.path.join(base_dir, log_file)
 
-    test_log_file_path = os.path.join(data_dir, 'postgres_test.log')
-    train_log_file_path = os.path.join(data_dir, 'postgres_train.log')
-    labels_file_path = os.path.join(data_dir, 'anomaly_label_postgres.csv')
+    test_log_file_path = os.path.join(base_dir, 'postgres_test.log')
+    train_log_file_path = os.path.join(base_dir, 'postgres_train.log')
+    labels_file_path = os.path.join(base_dir, 'anomaly_label.csv')
 
 
 
@@ -169,7 +171,7 @@ if __name__ == '__main__':
     template_list = [
         [4, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
         [2, ["Starting connection", "Authorizing", "No IP"], []],
-        [50, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
+        [5, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
     ]
 
     test_df['datetime'] = pd.to_datetime(test_df['date'] + ' ' + test_df['time'])
