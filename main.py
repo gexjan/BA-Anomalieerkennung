@@ -14,6 +14,7 @@ from util import evaluation
 import optuna
 import optuna.visualization as vis
 import plotly.io as pio
+import plotly.graph_objects as go
 from util.datahandler import DataHandler
 import sys
 from util.evaluation import Evaluator
@@ -77,6 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('-train', action='store_true', help='Train the model')
     parser.add_argument('-evaluate', action='store_true', help='Evaluate Model')
     parser.add_argument('-hptune', action='store_true', help='Hyperparameter tuning')
+    parser.add_argument('-seqlen', action='store_true', help='Compare Sequence-Length')
 
     parser.add_argument('--noparse', action='store_false', help='Skip parsing')
 
@@ -293,8 +295,7 @@ if __name__ == '__main__':
             with open(data_handler_file, 'rb') as f:
                 data_handler = pickle.load(f)
 
-        def objective(trial, device, train_loader, evaluator, logger):
-            # num_layers = trial.suggest_int('num_layers', 1, 2)
+        def objective(trial, device, train_loader, evaluator, logger, change_window_size, data_handler, num_classes):
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
@@ -303,8 +304,23 @@ if __name__ == '__main__':
 
             input_size = args.input_size
             epochs = args.epochs
-            window_size = args.window_size
+
             num_layers = args.num_layers
+
+            # Verändern der Window-Size. Das erfordert die neuberechnung des Evaluations- und Trainingsdatensatzes
+            # Zeitaufwendig
+            if change_window_size:
+                window_size = trial.suggest_int('window_size', 2, 10)
+                data_handler.update_window_size(window_size, logger)
+
+                train_x, train_y = data_handler.get_prepared_data('train')
+                train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+
+                eval_x, eval_y = data_handler.get_prepared_data('eval')
+                evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+            else:
+                window_size = args.window_size
+
 
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
             trained_model = training.train(
@@ -330,16 +346,26 @@ if __name__ == '__main__':
 
             return f1
 
-        train_x, train_y = data_handler.get_prepared_data('train')
-        train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+
         num_classes = len(data_handler.get_label_mapping())
 
-        eval_x, eval_y = data_handler.get_prepared_data('eval')
-
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
 
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger),
+        change_window_size = True
+        if change_window_size:
+            train_loader = None,
+            evaluator = None
+        else:
+            train_x, train_y = data_handler.get_prepared_data('train')
+            train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+
+            eval_x, eval_y = data_handler.get_prepared_data('eval')
+            evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+
+
+
+        study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger, change_window_size, data_handler, num_classes),
                        n_trials=args.hptrials, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)
@@ -381,8 +407,90 @@ if __name__ == '__main__':
         fig.update_layout(width=800, height=600)
         pio.write_image(fig, 'data/parallel_coordinate.png')
 
+    if args.seqlen:
+        seqlen_results_file = 'data/seqlen_results.csv'
 
+        if not os.path.exists(data_handler_file):
+            logger.error("No datahandler file. Rerun with argument -prepare")
+            sys.exit(1)
 
+        try:
+            data_handler
+        except NameError:
+            logger.info("Loading data")
+            with open(data_handler_file, 'rb') as f:
+                data_handler = pickle.load(f)
+
+        if not torch.cuda.is_available():
+            logger.warning("No CUDA available")
+            kwargs = {}
+            device = torch.device("cpu")
+        else:
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+            device = torch.device("cuda")
+            logger.info('Using CUDA')
+
+        epoch_f_results = {}
+
+        for i in range(2,15):
+            window_size = i
+            data_handler.update_window_size(window_size, logger)
+            train_x, train_y = data_handler.get_prepared_data('train')
+
+            train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+            num_classes = len(data_handler.get_label_mapping())
+
+            eval_x, eval_y = data_handler.get_prepared_data('eval')
+
+            evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+            if args.model == 'deeplog':
+                input_size = args.input_size
+                hidden_size = args.hidden_size
+                num_layers = args.num_layers
+                learning_rate = args.learning_rate
+                epochs = args.epochs
+                batch_size = args.batch_size
+
+                model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+                trained_model = training.train(
+                    model,
+                    train_loader,
+                    learning_rate,
+                    epochs,
+                    window_size,
+                    logger,
+                    device,
+                    input_size,
+                    evaluator,
+                    args.calculate_f)
+
+                f1 = evaluator.evaluate(trained_model, args.candidates)
+                evaluator.print_summary()
+                epoch_f_results[i] = f1
+
+                del model
+                del trained_model
+
+        # Konvertieren des epoch_f_results Dictionary in einen DataFrame
+        df_results = pd.DataFrame(list(epoch_f_results.items()), columns=['window_size', 'f1_score'])
+
+        # Speichern der Ergebnisse in einer CSV-Datei
+        df_results.to_csv(seqlen_results_file, index=False)
+
+        # Erstellen eines Scatter-Plots
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_results['window_size'], y=df_results['f1_score'],
+                                 mode='lines+markers', name='F1 Score'))
+
+        # Anpassen des Layouts
+        fig.update_layout(title='Window Size vs. F1 Score',
+                          xaxis_title='Window Size',
+                          yaxis_title='F1 Score',
+                          width=800, height=600)
+
+        # Speichern des Bildes
+        pio.write_image(fig, 'data/window_size_f1_score_plot.png')
 
     # Vorbereitung der Log-Dateien:
     # - Parsen der Log-Dateien

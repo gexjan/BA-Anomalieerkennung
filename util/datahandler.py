@@ -79,16 +79,13 @@ class DataHandler:
     def get_label_mapping(self):
         return self.label_mapping
 
-    def check_new_window_size(self, window_size):
-        return not self.window_size != window_size
-
     def update_window_size(self, window_size, logger):
-        if self.check_new_window_size(window_size):
-            x_train, y_train = slice_windows(self.get_transformed_data('train'), window_size, logger, False)
-            x_eval, y_eval = slice_windows(self.get_transformed_data('eval'), window_size, logger, True)
+        print(window_size)
+        x_train, y_train = slice_windows(self.get_transformed_data('train'), window_size, logger, False)
+        x_eval, y_eval = slice_windows(self.get_transformed_data('eval'), window_size, logger, True)
 
-            self.set_prepared_data(x_train, y_train, 'train')
-            self.set_prepared_data(x_eval, y_eval, 'eval')
+        self.set_prepared_data(x_train, y_train, 'train')
+        self.set_prepared_data(x_eval, y_eval, 'eval')
 
 class HDFSDataHandler(DataHandler):
     def __init__(self, args, logger, window_size):
