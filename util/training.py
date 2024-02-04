@@ -82,7 +82,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     epoch_losses = []
     f1_scores = []
 
-    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}")
+    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}, window_size={window_size}")
     # writer = SummaryWriter(log_dir='log/' + log)
 
     total_step = len(train_loader)
