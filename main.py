@@ -54,10 +54,12 @@ if __name__ == '__main__':
 
     if pre_args.dataset == 'postgres':
         log_file_default = 'postgres_train.log'
+        validation_file_default = 'postgres_validation.log'
         evaluation_file_default = 'postgres_test.log'
         log_dir_default = './logs/postgres'
     else:
         log_file_default = 'hdfs_train.log'
+        validation_file_default = 'hdfs_validation.log'
         evaluation_file_default = 'hdfs_test.log'
         log_dir_default = './logs/HDFS'
 
@@ -95,10 +97,12 @@ if __name__ == '__main__':
     parser.add_argument('--learning-rate', type=float, default='0.001', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
+    parser.add_argument('--validation-file', type=str, default=validation_file_default,
+                        help='File to validate the model')
 
     ## Evaluation
     parser.add_argument('--evaluation-file', type=str, default=evaluation_file_default,
-                        help='File to validate the model. Must contain normal and anormal entries.')
+                        help='File to Evaluate the model. Must contain normal and anormal entries.')
     parser.add_argument('--anomaly-file', type=str, default='anomaly_label.csv',
                         help='Contains the labels for the validation file')
     parser.add_argument('--candidates', type=int, default=9, help=("Number of prediction candidates"))
@@ -133,6 +137,13 @@ if __name__ == '__main__':
             'train')
         data_handler.set_grouped_data(
             group_entries(args.dataset,
+                          data_handler.get_structured_data('validation'),
+                          anomaly_file,
+                          logger,
+                          True),
+            'validation')
+        data_handler.set_grouped_data(
+            group_entries(args.dataset,
                           data_handler.get_structured_data('eval'),
                           anomaly_file,
                           logger,
@@ -143,7 +154,7 @@ if __name__ == '__main__':
         # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
         # Das Wörterbuch soll nur die Werte aus dem Trainingsdatensatz enthalten
         data_handler.set_label_mapping(
-            create_label_mapping(data_handler.get_grouped_data('train'),logger)
+            create_label_mapping(data_handler.get_grouped_data('train'), data_handler.get_grouped_data('validation'), logger)
         )
 
 
@@ -154,6 +165,15 @@ if __name__ == '__main__':
                 logger
             ),
             'train'
+        )
+
+        data_handler.set_transformed_data(
+            transform_event_ids(
+                data_handler.get_grouped_data('validation'),
+                data_handler.get_label_mapping(),
+                logger
+            ),
+            'validation'
         )
 
         data_handler.set_transformed_data(
@@ -169,6 +189,9 @@ if __name__ == '__main__':
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
         x_train, y_train = slice_windows(data_handler.get_transformed_data('train'), args.window_size, logger, use_padding=False)
         data_handler.set_prepared_data(x_train, y_train, 'train')
+
+        x_valid, y_valid = slice_windows(data_handler.get_transformed_data('validation'), args.window_size, logger, use_padding=False)
+        data_handler.set_prepared_data(x_valid, y_valid, 'validation')
 
         x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True)
         data_handler.set_prepared_data(x_eval, y_eval, 'eval')
@@ -201,13 +224,17 @@ if __name__ == '__main__':
             logger.info('Using CUDA')
 
         train_x, train_y = data_handler.get_prepared_data('train')
-
         train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
-        num_classes = len(data_handler.get_label_mapping())
+
+
+        valid_x, valid_y = data_handler.get_prepared_data('validation')
+        valid_loader = get_dataloader(valid_x, valid_y, args.batch_size, kwargs)
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
         evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+
+        num_classes = len(data_handler.get_label_mapping())
 
         if args.model == 'deeplog':
             input_size = args.input_size
@@ -228,6 +255,7 @@ if __name__ == '__main__':
                 logger,
                 device,
                 input_size,
+                valid_loader,
                 evaluator,
                 args.calculate_f)
 
@@ -275,10 +303,6 @@ if __name__ == '__main__':
             logger.error("No datahandler file. Rerun with argument -prepare")
             sys.exit(1)
 
-        if not os.path.exists(os.path.join(args.data_dir, args.model_file)):
-            logger.error("No model trained")
-            sys.exit(1)
-
         if not torch.cuda.is_available():
             logger.warning("No CUDA available")
             kwargs = {}
@@ -295,7 +319,7 @@ if __name__ == '__main__':
             with open(data_handler_file, 'rb') as f:
                 data_handler = pickle.load(f)
 
-        def objective(trial, device, train_loader, evaluator, logger, change_window_size, data_handler, num_classes):
+        def objective(trial, device, train_loader, valid_loader, logger, change_window_size, data_handler, num_classes):
             hidden_size = trial.suggest_int('hidden_size', 20, 200)
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
@@ -317,27 +341,26 @@ if __name__ == '__main__':
                 train_x, train_y = data_handler.get_prepared_data('train')
                 train_loader = get_dataloader(train_x, train_y, batch_size, kwargs)
 
-                eval_x, eval_y = data_handler.get_prepared_data('eval')
-                evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+                valid_x, valid_y = data_handler.get_prepared_data('validation')
+                valid_loader = get_dataloader(valid_x, valid_y, batch_size, kwargs)
+
             else:
                 window_size = args.window_size
 
 
             model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
-            trained_model = training.train(
+            trained_model, valid_loss = training.train(
                 model,
                 train_loader,
                 learning_rate,
                 epochs,
                 window_size,
                 logger,
-                device,input_size,
-                evaluator,
-                False
+                device,
+                input_size,
+                valid_loader,
+                return_val_loss=True
             )
-
-            f1 = evaluator.evaluate(trained_model, candidates)
-            evaluator.print_summary()
 
             # Löschen des Modells und Freigeben des Speichers
             del model
@@ -345,28 +368,27 @@ if __name__ == '__main__':
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
 
-            return f1
+            return valid_loss
 
 
         num_classes = len(data_handler.get_label_mapping())
 
 
-        study = optuna.create_study(direction='maximize')
-        change_window_size = True
+        study = optuna.create_study(direction='minimize')
+        change_window_size = False
         if change_window_size:
             train_loader = None,
-            evaluator = None
+            valid_loader = None
         else:
             train_x, train_y = data_handler.get_prepared_data('train')
             train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
 
-            eval_x, eval_y = data_handler.get_prepared_data('eval')
-            evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+            valid_x, valid_y = data_handler.get_prepared_data('validation')
+            valid_loader = get_dataloader(valid_x, valid_y, args.batch_size, kwargs)
 
 
 
-
-        study.optimize(lambda trial: objective(trial, device, train_loader, evaluator, logger, change_window_size, data_handler, num_classes),
+        study.optimize(lambda trial: objective(trial, device, train_loader, valid_loader, logger, change_window_size, data_handler, num_classes),
                        n_trials=args.hptrials, gc_after_trial=True)
 
         print('Beste Hyperparameter:', study.best_params)

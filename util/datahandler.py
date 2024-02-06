@@ -42,9 +42,11 @@ class DataHandler:
     def read_structured_files(self):
         self.logger.info("Reading structured files")
         structured_train_file_path = os.path.join(self.args.data_dir, self.args.log_file + '_structured.csv')
+        structured_validation_file_path = os.path.join(self.args.data_dir, self.args.validation_file + '_structured.csv')
         structured_eval_file_path = os.path.join(self.args.data_dir, self.args.evaluation_file + '_structured.csv')
 
         self.struct_train_df = pd.read_csv(structured_train_file_path)
+        self.struct_validation_df = pd.read_csv(structured_validation_file_path)
         self.struct_eval_df = pd.read_csv(structured_eval_file_path)
 
     def read_anomaly_file(self):
@@ -102,7 +104,7 @@ class HDFSDataHandler(DataHandler):
         return log_format, rex, tau, st, depth
 
     def parse(self):
-        files = [self.args.log_file, self.args.evaluation_file]
+        files = [self.args.log_file, self.args.evaluation_file, self.args.validation_file]
 
         log_format, rex, tau, st, depth = self.get_parse_params()
         parser = self.get_parser(log_format, rex, tau, st, depth, self.args.log_dir)
@@ -126,7 +128,7 @@ class PostgresDataHandler(DataHandler):
 
     def parse(self):
         self.logger.info("Converting Postgres-Logs zu singleline")
-        files = [self.args.log_file, self.args.evaluation_file]
+        files = [self.args.log_file, self.args.evaluation_file, self.args.validation_file]
 
         # Umwandeln in einzeilige Einträge
         postgres_to_singleline(files, self.args.log_dir, self.args.data_dir)

@@ -73,14 +73,32 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
         # Bild speichern
         combined_fig.write_image('./data/combined_loss_f1.png')
 
+def plot_loss(epoch_losses, valid_losses):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(1, len(epoch_losses)+1)), y=epoch_losses, mode='lines+markers', name='Train Loss'))
+    fig.add_trace(go.Scatter(x=list(range(1, len(valid_losses)+1)), y=valid_losses, mode='lines+markers', name='Valid Loss'))
+    fig.update_layout(title='Train vs Valid Loss per Epoch', xaxis_title='Epoch', yaxis_title='Loss', legend=dict(y=0.5, traceorder='reversed', font_size=16))
+    fig.show()
 
 
+def validate(model, valid_loader, criterion, device, window_size, input_size):
+    model.eval()  # Modell in den Evaluationsmodus setzen
+    valid_loss = 0.0
+    with torch.no_grad():  # Keine Gradientenberechnung
+        for step, (seq, label) in enumerate(valid_loader):
+            seq = seq.clone().detach().view(-1, window_size, input_size).to(device)
+            output = model(seq)
+            loss = criterion(output, label.to(device))
+            valid_loss += loss.item()
+    return valid_loss / len(valid_loader)
 
-def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, evaluator=None, calculate_f = False):
+
+def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
     epoch_losses = []
+    valid_losses = []
     f1_scores = []
 
     logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}, window_size={window_size}")
@@ -137,7 +155,11 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
 
             epoch_loss = train_loss / total_step
             epoch_losses.append(epoch_loss)
-            logger.info('Epoch [{}/{}], train_loss: {:.4f}, time: {}'.format(epoch + 1, epochs, train_loss / total_step,epoch_duration))
+
+            if valid_loader:
+                valid_loss = validate(model, valid_loader, criterion, device, window_size, input_size)
+                valid_losses.append(valid_loss)
+            logger.info('Epoch [{}/{}], train_loss: {:.4f}, valid_loss: {:.4f} time: {}'.format(epoch + 1, epochs, train_loss / total_step, valid_loss, epoch_duration))
 
             if calculate_f:
                 f1 = evaluator.evaluate(model, use_tqdm=True)
@@ -147,6 +169,10 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 plot_loss_and_f1(epoch_losses, f1_scores)
     finally:
         plot_loss_and_f1(epoch_losses, f1_scores)
+        plot_loss(epoch_losses, valid_losses)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
+    # Rükgabe des letzten val_loss Wertes
+    if valid_loader and return_val_loss:
+        return model, valid_loss
     return model

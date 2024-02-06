@@ -149,12 +149,18 @@ def slice_windows(df, window_size, logger, use_padding):
 
     return train_x, train_y
 
-def create_label_mapping(df, logger):
+def create_label_mapping(df1, df2, logger):
     logger.info("Create label mapping")
     label_mapping = {'#OOV': 0, '#PAD': 1}
     next_id_value = 2
 
-    for index, row in df.iterrows():
+    for index, row in df1.iterrows():
+        for event_id in row['EventSequence']:
+            if event_id not in label_mapping and event_id != '#PAD':
+                label_mapping[event_id] = next_id_value
+                next_id_value += 1
+
+    for index, row in df2.iterrows():
         for event_id in row['EventSequence']:
             if event_id not in label_mapping and event_id != '#PAD':
                 label_mapping[event_id] = next_id_value
