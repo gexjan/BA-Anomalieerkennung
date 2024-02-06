@@ -37,7 +37,7 @@ for line in lines:
 
 # Aufteilen der Block-IDs in Trainings- und Testdaten
 block_ids = list(block_id_groups.keys())
-train_ids, test_ids = train_test_split(block_ids, test_size=0.2, random_state=42)
+train_ids, test_ids = train_test_split(block_ids, test_size=0.98, random_state=42)
 
 # Auswahl eines Prozentsatzes der Test-IDs, falls notwendig
 if test_data_usage_percentage < 1.0:
