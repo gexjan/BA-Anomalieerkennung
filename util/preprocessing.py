@@ -70,36 +70,40 @@ def group_entries(dataset, df, anomaly_df, logger, train_data):
             # Setze alle Labels auf 'None'
             merged_df['Label'] = 'None'
 
+    if dataset == 'postgres':
+        anomaly_file_col = 'pid'
+        regex_pattern = re.compile(r'\[(\d+)\]')
 
-    # elif dataset == 'postgres':
-    #     pass
-    #
-    #
-    #
-    #
-    #
-    # # Trainingsdaten haben nicht immer labels. Daher können die nicht immer erwartet werden
-    # if not train_data:
-    #     print("Das wird nicht ausgeführt")
-    #     # Zusammenführen der DataFrames anhand der Block-ID
-    #     merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
-    #     merged_df.drop(columns=[anomaly_file_col], inplace=True)
-    # else:
-    #     print("Ja das wird ausgeführt")
-    #     merged_df = grouped
-    #     merged_df['Label'] = 'None'  # Füge die Label-Spalte mit Platzhaltern hinzu
-    #
-    # # Entfernen der anomalen Zeilen
-    # # Beim Training ist das notwendig, um dem Modell das "normale" Verhalten beizubringen
-    # if not train_data and remove_anomalies:
-    #     print("Testtest123")
-    #     # if remove_anomalies:
-    #     merged_df = merged_df[merged_df['Label'] == 'Normal']
-    #
-    #
-    #
-    # # Entfernen von Duplikaten in 'EventSequence'
-    # # merged_df = merged_df.drop_duplicates(subset=['EventSequence'])
+        df['SeqID'] = df['PID'].apply(
+            lambda x: int(regex_pattern.search(x).group(1)) if regex_pattern.search(x) else None)
+
+        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+        grouped = df.groupby('SeqID')['EventId'].apply(list)
+        grouped = grouped.reset_index()
+        grouped.columns = ['SeqID', 'EventSequence']
+
+        if train_data:
+            grouped['Label'] = None
+            merged_df = grouped
+
+        else:
+        # Zusammenführen der DataFrames anhand der Block-ID
+            merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+            merged_df.drop(columns=[anomaly_file_col], inplace=True)
+
+            # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
+            missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
+            if missing_labels:
+                logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
+
+    # Durchschnittliche Gruppenlänge + Median
+    avg_group_length = grouped['EventSequence'].apply(len).mean()
+    median_group_length = grouped['EventSequence'].apply(len).median()
+
+    data_type = "Training" if train_data else "Testing"
+    logger.info(
+        f"{data_type} data: Average group length: {avg_group_length}; Median group length: {median_group_length}")
+
     return merged_df
 
 
@@ -118,19 +122,22 @@ def process_windowing(data, use_padding):
     windows = []
 
     if use_padding and seqlen < window_size:
-        padded_sequence = sequence + ['#PAD'] * (window_size - seqlen)
-        windows.append([seq_id, padded_sequence, '#PAD', label])
+        padded_sequence = sequence + [1] * (window_size - seqlen) # 1 entspricht '#PAD'
+        windows.append([seq_id, padded_sequence, 1, label]) # 1 entspricht '#PAD'
     else:
         i = 0
         while (i + window_size) < seqlen:
             window_slice = sequence[i: i + window_size]
-            next_element = sequence[i + window_size] if (i + window_size) < seqlen else '#PAD'
+            next_element = sequence[i + window_size] if (i + window_size) < seqlen else 1 # 1 entspricht '#PAD'
             windows.append([seq_id, window_slice, next_element, label])
             i += 1
     return windows
 
 
-def slice_windows(df, window_size, num_processes, logger, use_padding):
+def slice_windows(df, window_size, logger, use_padding):
+    logger.info("Slicing windows")
+    # Anzahl der Prozesse beim Slicen
+    num_processes = 10
     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
     with Pool(num_processes) as pool:
         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
@@ -155,31 +162,14 @@ def create_label_mapping(df, logger):
     return label_mapping
 
 
-def transform_event_ids(dataset, mapping, logger, mode):
-    # logger.info("Transforming event ids")
+def transform_event_ids(dataset, mapping, logger):
+    logger.info("Transforming IDs")
     dataset_transformed = dataset.copy()
-    if mode == 'list':
-        for index, row in dataset.iterrows():
-            dataset_transformed.at[index, 'window'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
-                                                       row['window']]
-    elif mode == 'single':
-        dataset_transformed['next'] = dataset['next'].apply(lambda event_id: mapping.get(event_id, mapping['#OOV']))
-    else:
-        logger.error("Invalid transformation mode")
+    for index, row in dataset.iterrows():
+        dataset_transformed.at[index, 'EventSequence'] = [mapping.get(event_id, mapping['#OOV']) for event_id in
+                                                   row['EventSequence']]
 
     return dataset_transformed
-
-
-def slice_and_transform_seqs(df, window_size, num_processes, mapping, logger, use_padding=False):
-    logger.info("Slicing windows")
-    x, y = slice_windows(df, window_size, num_processes, logger, use_padding)
-
-    logger.info("Transforming windows")
-    x_transformed = transform_event_ids(x, mapping, logger, 'list')
-    y_transformed = transform_event_ids(y, mapping, logger, 'single')
-    return x_transformed, y_transformed
-
-
 """
 # Basisklasse für das Parsen von Log-Dateien
 class Parser:

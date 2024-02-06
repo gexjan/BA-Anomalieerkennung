@@ -48,9 +48,9 @@ class Evaluator:
 
 
 
-    def get_eval_df(self, model, use_tqdm):
+    def get_eval_df(self, model, use_tqdm, candidates):
         dataset = EvaluationSequenceDataset(self.x, self.y)
-        dataloader = DataLoader(dataset, batch_size=2048, shuffle=False, pin_memory=True)
+        dataloader = DataLoader(dataset, batch_size=4096, shuffle=False, pin_memory=True)
         model.eval()
         results = []
         with torch.no_grad():
@@ -61,7 +61,7 @@ class Evaluator:
                 windows = windows.to(self.device).view(-1, window_size, self.args.input_size)
                 outputs = model(windows)
                 probabilities = torch.softmax(outputs, dim=1)
-                top_vals, top_indices = torch.topk(probabilities, self.args.candidates)
+                top_vals, top_indices = torch.topk(probabilities, candidates)
 
                 for batch_idx, (index, window, next_value, label) in enumerate(
                         zip(index, windows, next_values, labels)):
@@ -75,8 +75,8 @@ class Evaluator:
 
         return pd.DataFrame(results)
 
-    def evaluate(self, model, use_tqdm=True):
-        prediction_df = self.get_eval_df(model, use_tqdm)
+    def evaluate(self, model, candidates, use_tqdm=True):
+        prediction_df = self.get_eval_df(model, use_tqdm, candidates)
         self.logger.info("Evaluating")
         grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
 

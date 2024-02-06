@@ -4,7 +4,7 @@ import pickle
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn as nn
-import torch.optim as optiom
+import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import time
 import sys
@@ -78,11 +78,12 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
 
 def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
-    optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
     epoch_losses = []
     f1_scores = []
 
-    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}")
+    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}, window_size={window_size}")
     # writer = SummaryWriter(log_dir='log/' + log)
 
     total_step = len(train_loader)
@@ -125,9 +126,10 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 # Anpassung der Modellparameter basierend auf den berechneten Gradienten
                 # Aktualisierung der Modellparameter
                 optimizer.step()
-
                 # Aktualisieren des tqdm Fortschrittsbalkens
                 batch_speed = step / (time.time() - start_time)
+
+            scheduler.step()
 
             # Berechnung und ausgabe diverser Metriken
             end_time = time.time()
@@ -142,6 +144,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 evaluator.print_summary()
                 f1_scores.append(f1)
                 save_metrics_to_csv(epoch_losses, f1_scores)
+                plot_loss_and_f1(epoch_losses, f1_scores)
     finally:
         plot_loss_and_f1(epoch_losses, f1_scores)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")

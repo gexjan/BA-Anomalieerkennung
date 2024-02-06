@@ -6,8 +6,8 @@ import os
 import re
 
 # Parameter für den Anteil der Testdaten, die verwendet werden sollen
-test_data_usage_percentage =  0.1 # z.B. 1.0 für 100% der Testdaten
-train_data_usage_percentage =  0.5 # z.B. 1.0 für 100% der Trainingsdaten
+test_data_usage_percentage =  0.2 # z.B. 1.0 für 100% der Testdaten
+train_data_usage_percentage =  1.0 # z.B. 1.0 für 100% der Trainingsdaten
 
 log_dir = '../logs/HDFS/'
 log_file = 'HDFS.log'
@@ -37,7 +37,7 @@ for line in lines:
 
 # Aufteilen der Block-IDs in Trainings- und Testdaten
 block_ids = list(block_id_groups.keys())
-train_ids, test_ids = train_test_split(block_ids, test_size=0.99, random_state=42)
+train_ids, test_ids = train_test_split(block_ids, test_size=0.98, random_state=42)
 
 # Auswahl eines Prozentsatzes der Test-IDs, falls notwendig
 if test_data_usage_percentage < 1.0:
