@@ -79,6 +79,7 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
 def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
     epoch_losses = []
     f1_scores = []
 
@@ -127,6 +128,8 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 optimizer.step()
                 # Aktualisieren des tqdm Fortschrittsbalkens
                 batch_speed = step / (time.time() - start_time)
+
+            scheduler.step()
 
             # Berechnung und ausgabe diverser Metriken
             end_time = time.time()
