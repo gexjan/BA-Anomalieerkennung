@@ -4,7 +4,7 @@ import pickle
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn as nn
-import torch.optim as optiom
+import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import time
 import sys
@@ -78,7 +78,7 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
 
 def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
-    optimizer = optiom.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     epoch_losses = []
     f1_scores = []
 
@@ -125,7 +125,6 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 # Anpassung der Modellparameter basierend auf den berechneten Gradienten
                 # Aktualisierung der Modellparameter
                 optimizer.step()
-
                 # Aktualisieren des tqdm Fortschrittsbalkens
                 batch_speed = step / (time.time() - start_time)
 

@@ -300,12 +300,13 @@ if __name__ == '__main__':
             learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
             candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
-            # batch_size = trial.suggest_int('batch_size', 64, 4096)
+            num_layers = trial.suggest_int('layers', 1, 3)
+            batch_size = trial.suggest_int('batch_size', 8, 2048)
 
             input_size = args.input_size
             epochs = args.epochs
 
-            num_layers = args.num_layers
+            # num_layers = args.num_layers
 
             # Verändern der Window-Size. Das erfordert die neuberechnung des Evaluations- und Trainingsdatensatzes
             # Zeitaufwendig
@@ -314,7 +315,7 @@ if __name__ == '__main__':
                 data_handler.update_window_size(window_size, logger)
 
                 train_x, train_y = data_handler.get_prepared_data('train')
-                train_loader = get_dataloader(train_x, train_y, args.batch_size, kwargs)
+                train_loader = get_dataloader(train_x, train_y, batch_size, kwargs)
 
                 eval_x, eval_y = data_handler.get_prepared_data('eval')
                 evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
