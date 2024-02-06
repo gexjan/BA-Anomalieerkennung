@@ -7,7 +7,7 @@ import re
 
 # Parameter für den Anteil der Testdaten, die verwendet werden sollen
 test_data_usage_percentage =  0.01 # z.B. 1.0 für 100% der Testdaten
-train_data_usage_percentage =  0.7 # z.B. 1.0 für 100% der Trainingsdaten
+train_data_usage_percentage =  1.0 # z.B. 1.0 für 100% der Trainingsdaten
 validation_data_percentage = 1.0  # z.B. 0.2 für 20% der Trainingsdaten als Validierungsdaten
 
 
@@ -40,7 +40,7 @@ for line in lines:
 
 # Aufteilen der Block-IDs in Trainings- und Testdaten
 block_ids = list(block_id_groups.keys())
-train_ids, test_ids = train_test_split(block_ids, test_size=0.98, random_state=42)
+train_ids, test_ids = train_test_split(block_ids, test_size=0.90, random_state=42)
 
 train_ids, validation_ids = train_test_split(train_ids, test_size=0.5, random_state=42)
 

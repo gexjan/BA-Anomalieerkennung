@@ -5,6 +5,7 @@ from model.lstm import LSTM
 # Speichern des Modells lstm_model.pth im Ordner model/
 def save_model(model, input_size, hidden_size, num_layers, num_classes, model_dir, model_file, logger):
     logger.info("Saving model")
+    print(model)
     model_info = {
         'model_state_dict': model.state_dict(),
         'input_size': input_size,

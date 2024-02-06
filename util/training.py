@@ -13,6 +13,7 @@ import plotly.graph_objs as go
 import plotly.io as pio
 import pandas as pd
 from plotly.subplots import make_subplots
+import torch.nn.functional as F
 from util import evaluation
 
 
@@ -96,7 +97,7 @@ def validate(model, valid_loader, criterion, device, window_size, input_size):
 def train(model, train_loader, learning_rate, epochs, window_size, logger, device, input_size, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
     epoch_losses = []
     valid_losses = []
     f1_scores = []
@@ -147,7 +148,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 # Aktualisieren des tqdm Fortschrittsbalkens
                 batch_speed = step / (time.time() - start_time)
 
-            scheduler.step()
+            # scheduler.step()
 
             # Berechnung und ausgabe diverser Metriken
             end_time = time.time()
@@ -173,6 +174,8 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
 
     # Rükgabe des letzten val_loss Wertes
+    print("Return: ", return_val_loss)
     if valid_loader and return_val_loss:
         return model, valid_loss
-    return model
+    else:
+        return model

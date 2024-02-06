@@ -232,7 +232,7 @@ if __name__ == '__main__':
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+        return_val_loss = False
 
         num_classes = len(data_handler.get_label_mapping())
 
@@ -256,7 +256,7 @@ if __name__ == '__main__':
                 device,
                 input_size,
                 valid_loader,
-                evaluator,
+                return_val_loss,
                 args.calculate_f)
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
