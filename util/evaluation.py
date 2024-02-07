@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import torch.nn.functional as F
 
 class EvaluationSequenceDataset(Dataset):
     def __init__(self, x, y):
@@ -48,7 +49,7 @@ class Evaluator:
 
 
 
-    def get_eval_df(self, model, use_tqdm, candidates):
+    def get_eval_df(self, model, use_tqdm, candidates, num_classes):
         dataset = EvaluationSequenceDataset(self.x, self.y)
         dataloader = DataLoader(dataset, batch_size=4096, shuffle=False, pin_memory=True)
         model.eval()
@@ -58,8 +59,10 @@ class Evaluator:
             for batch in loop:
                 index, windows, next_values, labels = batch
                 _, window_size = windows.shape
-                windows = windows.to(self.device).view(-1, window_size, self.args.input_size)
-                outputs = model(windows)
+                # seq = torch.tensor(windows, dtype=torch.long).view(-1, window_size).to(self.device)
+                seq = windows.clone().detach().to(dtype=torch.long, device=self.device).view(-1, window_size)
+                seq = F.one_hot(seq, num_classes=num_classes).float()
+                outputs = model(seq)
                 probabilities = torch.softmax(outputs, dim=1)
                 top_vals, top_indices = torch.topk(probabilities, candidates)
 
@@ -75,8 +78,8 @@ class Evaluator:
 
         return pd.DataFrame(results)
 
-    def evaluate(self, model, candidates, use_tqdm=True):
-        prediction_df = self.get_eval_df(model, use_tqdm, candidates)
+    def evaluate(self, model, candidates, num_classes, use_tqdm=True):
+        prediction_df = self.get_eval_df(model, use_tqdm, candidates, num_classes)
         self.logger.info("Evaluating")
         grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
 

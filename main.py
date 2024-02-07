@@ -245,7 +245,7 @@ if __name__ == '__main__':
             window_size = args.window_size
             batch_size = args.batch_size
 
-            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            model = LSTM(hidden_size, num_layers, num_classes).to(device)
             trained_model = training.train(
                 model,
                 train_loader,
@@ -254,7 +254,7 @@ if __name__ == '__main__':
                 window_size,
                 logger,
                 device,
-                input_size,
+                num_classes,
                 valid_loader,
                 return_val_loss,
                 args.calculate_f)
@@ -292,10 +292,12 @@ if __name__ == '__main__':
         except NameError:
             model = load_model(args.data_dir, device, args.model_file, logger)
 
+        num_classes = len(data_handler.get_label_mapping())
+
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
         evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
-        f1 = evaluator.evaluate(model, args.candidates)
+        f1 = evaluator.evaluate(model, args.candidates, num_classes)
         evaluator.print_summary()
 
     if args.hptune:
@@ -348,7 +350,7 @@ if __name__ == '__main__':
                 window_size = args.window_size
 
 
-            model = LSTM(input_size, hidden_size, num_layers, num_classes).to(device)
+            model = LSTM(hidden_size, num_layers, num_classes).to(device)
             trained_model, valid_loss = training.train(
                 model,
                 train_loader,
@@ -357,7 +359,7 @@ if __name__ == '__main__':
                 window_size,
                 logger,
                 device,
-                input_size,
+                num_classes,
                 valid_loader,
                 return_val_loss=True
             )
