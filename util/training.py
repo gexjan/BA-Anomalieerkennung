@@ -19,9 +19,7 @@ from util import evaluation
 
 def get_dataloader(train_x, train_y, batch_size, kwargs):
     # X ist die Sequenz, Y der nächste Eintrag nach der Sequenz
-    print(train_x)
     X = torch.tensor(train_x['window'].tolist(), dtype=torch.long)
-    print(X)
     Y = torch.tensor(train_y['next'].values)
 
     dataset = TensorDataset(X, Y)
@@ -76,6 +74,31 @@ def plot_loss_and_f1(epoch_losses, f1_scores):
         # Bild speichern
         combined_fig.write_image('./data/combined_loss_f1.png')
 
+def plot_loss_valid_loss_f1(epoch_losses, valid_losses, f1_scores, file_name='./data/training_validation_f1.png'):
+    # Erstellen eines Subplot-Objekts mit 2 Y-Achsen
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Hinzufügen des Trainingsverlustes zum Graphen
+    fig.add_trace(go.Scatter(x=list(range(1, len(epoch_losses)+1)), y=epoch_losses, mode='lines+markers', name='Train Loss'), secondary_y=False)
+
+    # Hinzufügen des Validierungsverlustes zum Graphen
+    fig.add_trace(go.Scatter(x=list(range(1, len(valid_losses)+1)), y=valid_losses, mode='lines+markers', name='Valid Loss'), secondary_y=False)
+
+    # Hinzufügen des F1-Scores zum Graphen
+    fig.add_trace(go.Scatter(x=list(range(1, len(f1_scores)+1)), y=f1_scores, mode='lines+markers', name='F1 Score'), secondary_y=True)
+
+    # Aktualisieren des Layouts mit Titeln und Achsenbeschriftungen
+    fig.update_layout(title='Training and Validation Loss & F1 Score per Epoch', xaxis_title='Epoch')
+    fig.update_yaxes(title_text='Loss', secondary_y=False)
+    fig.update_yaxes(title_text='F1 Score', secondary_y=True)
+
+    # Bild speichern
+    fig.write_image(file_name)
+
+    # Optional: Graph anzeigen
+    fig.show()
+
+
 def plot_loss(epoch_losses, valid_losses):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=list(range(1, len(epoch_losses)+1)), y=epoch_losses, mode='lines+markers', name='Train Loss'))
@@ -97,10 +120,11 @@ def validate(model, valid_loader, criterion, device, window_size, num_classes):
     return valid_loss / len(valid_loader)
 
 
-def train(model, train_loader, learning_rate, epochs, window_size, logger, device, num_classes, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
+def train(model, train_loader, learning_rate, epochs, window_size, logger, device, num_classes, candidates, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+    # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
     epoch_losses = []
     valid_losses = []
     f1_scores = []
@@ -167,7 +191,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
             logger.info('Epoch [{}/{}], train_loss: {:.4f}, valid_loss: {:.4f} time: {}'.format(epoch + 1, epochs, train_loss / total_step, valid_loss, epoch_duration))
 
             if calculate_f:
-                f1 = evaluator.evaluate(model, use_tqdm=True)
+                f1 = evaluator.evaluate(model, candidates, num_classes, use_tqdm=True)
                 evaluator.print_summary()
                 f1_scores.append(f1)
                 save_metrics_to_csv(epoch_losses, f1_scores)
@@ -175,7 +199,10 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     finally:
         plot_loss_and_f1(epoch_losses, f1_scores)
         plot_loss(epoch_losses, valid_losses)
+        plot_loss_valid_loss_f1(epoch_losses, valid_losses, f1_scores)
     logger.info(f"Finished Deeplog training. Last Loss: {train_loss / total_step}")
+
+
 
     # Rükgabe des letzten val_loss Wertes
     if valid_loader and return_val_loss:

@@ -92,7 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default='2048', help='Input batch size for training')
     parser.add_argument('--input-size', type=int, default='1', help='Model input size')
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
-    parser.add_argument('--hidden-size', type=int, default='100', help='Size of the hidden layers')
+    parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
     parser.add_argument('--learning-rate', type=float, default='0.001', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
@@ -135,6 +135,7 @@ if __name__ == '__main__':
                           logger,
                           True),
             'train')
+        logger.info(f"{len(data_handler.get_grouped_data('train'))} sequences in train-dataset")
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('validation'),
@@ -142,6 +143,7 @@ if __name__ == '__main__':
                           logger,
                           True),
             'validation')
+        logger.info(f"{len(data_handler.get_grouped_data('validation'))} sequences in validation-dataset")
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('eval'),
@@ -149,6 +151,7 @@ if __name__ == '__main__':
                           logger,
                           False),
             'eval')
+        logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
 
         # Umwandeln von EventIDs zu numerischen IDs
         # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
@@ -167,6 +170,15 @@ if __name__ == '__main__':
             'train'
         )
 
+        # train_data = data_handler.get_transformed_data('train')
+        # with open('hdfs_train', 'w') as file:
+        #     # Iteriere über jede Zeile in den Daten
+        #     for index, row in train_data.iterrows():
+        #         # Konvertiere die EventSequence-Liste in einen String mit Leerzeichen zwischen den Elementen
+        #         sequence_str = ' '.join(map(str, row['EventSequence']))
+        #         # Schreibe die formatierte Sequenz in die Datei, gefolgt von einem Zeilenumbruch
+        #         file.write(sequence_str + '\n')
+
         data_handler.set_transformed_data(
             transform_event_ids(
                 data_handler.get_grouped_data('validation'),
@@ -184,6 +196,21 @@ if __name__ == '__main__':
             ),
             'eval'
         )
+        # eval_data = data_handler.get_transformed_data('eval')
+        #
+        # # Öffne die Dateien für normale und abnormale Sequenzen zum Schreiben
+        # with open('hdfs_test_normal', 'w') as file_normal, open('hdfs_test_abnormal', 'w') as file_abnormal:
+        #     # Iteriere über jede Zeile in den Daten
+        #     for index, row in eval_data.iterrows():
+        #         # Konvertiere die EventSequence-Liste in einen String mit Leerzeichen zwischen den Elementen
+        #         sequence_str = ' '.join(map(str, row['EventSequence']))
+        #
+        #         # Prüfe das Label und schreibe in die entsprechende Datei
+        #         if row['Label'] == 'Normal':
+        #             file_normal.write(sequence_str + '\n')
+        #         elif row['Label'] == 'Anomaly':
+        #             file_abnormal.write(sequence_str + '\n')
+        #
 
         # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
@@ -231,11 +258,12 @@ if __name__ == '__main__':
         valid_loader = get_dataloader(valid_x, valid_y, args.batch_size, kwargs)
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 0.01)
 
         return_val_loss = False
 
         num_classes = len(data_handler.get_label_mapping())
-
+        # num_classes = 30
         if args.model == 'deeplog':
             input_size = args.input_size
             hidden_size = args.hidden_size
@@ -255,8 +283,10 @@ if __name__ == '__main__':
                 logger,
                 device,
                 num_classes,
+                args.candidates,
                 valid_loader,
                 return_val_loss,
+                evaluator,
                 args.calculate_f)
 
             save_model(trained_model, input_size, hidden_size, num_layers, num_classes, args.data_dir, args.model_file, logger)
@@ -293,6 +323,7 @@ if __name__ == '__main__':
             model = load_model(args.data_dir, device, args.model_file, logger)
 
         num_classes = len(data_handler.get_label_mapping())
+        # num_classes = 30
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 

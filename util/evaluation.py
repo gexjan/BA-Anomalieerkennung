@@ -51,7 +51,7 @@ class Evaluator:
 
     def get_eval_df(self, model, use_tqdm, candidates, num_classes):
         dataset = EvaluationSequenceDataset(self.x, self.y)
-        dataloader = DataLoader(dataset, batch_size=4096, shuffle=False, pin_memory=True)
+        dataloader = DataLoader(dataset, batch_size=1024, shuffle=False, pin_memory=True)
         model.eval()
         results = []
         with torch.no_grad():
