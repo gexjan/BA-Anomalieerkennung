@@ -128,20 +128,24 @@ if __name__ == '__main__':
         # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
         # EventSequence ist eine Liste von EventIDs
         # Wichtig: Bei den Trainingsdaten müssen alle Anomalien entfernt werden
+        print("Davor: ", data_handler.get_structured_data('train'))
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('train'),
                           anomaly_file,
                           logger,
-                          True),
+                          True,
+                          grouping=False),
             'train')
         logger.info(f"{len(data_handler.get_grouped_data('train'))} sequences in train-dataset")
+        print("Danach: ", data_handler.get_grouped_data(('train')))
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('validation'),
                           anomaly_file,
                           logger,
-                          True),
+                          True,
+                          grouping=False),
             'validation')
         logger.info(f"{len(data_handler.get_grouped_data('validation'))} sequences in validation-dataset")
         data_handler.set_grouped_data(
@@ -149,7 +153,8 @@ if __name__ == '__main__':
                           data_handler.get_structured_data('eval'),
                           anomaly_file,
                           logger,
-                          False),
+                          False,
+                          grouping=False),
             'eval')
         logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
 
@@ -173,14 +178,6 @@ if __name__ == '__main__':
             'train'
         )
 
-        # train_data = data_handler.get_transformed_data('train')
-        # with open('hdfs_train', 'w') as file:
-        #     # Iteriere über jede Zeile in den Daten
-        #     for index, row in train_data.iterrows():
-        #         # Konvertiere die EventSequence-Liste in einen String mit Leerzeichen zwischen den Elementen
-        #         sequence_str = ' '.join(map(str, row['EventSequence']))
-        #         # Schreibe die formatierte Sequenz in die Datei, gefolgt von einem Zeilenumbruch
-        #         file.write(sequence_str + '\n')
 
         data_handler.set_transformed_data(
             transform_event_ids(
@@ -199,21 +196,6 @@ if __name__ == '__main__':
             ),
             'eval'
         )
-        # eval_data = data_handler.get_transformed_data('eval')
-        #
-        # # Öffne die Dateien für normale und abnormale Sequenzen zum Schreiben
-        # with open('hdfs_test_normal', 'w') as file_normal, open('hdfs_test_abnormal', 'w') as file_abnormal:
-        #     # Iteriere über jede Zeile in den Daten
-        #     for index, row in eval_data.iterrows():
-        #         # Konvertiere die EventSequence-Liste in einen String mit Leerzeichen zwischen den Elementen
-        #         sequence_str = ' '.join(map(str, row['EventSequence']))
-        #
-        #         # Prüfe das Label und schreibe in die entsprechende Datei
-        #         if row['Label'] == 'Normal':
-        #             file_normal.write(sequence_str + '\n')
-        #         elif row['Label'] == 'Anomaly':
-        #             file_abnormal.write(sequence_str + '\n')
-        #
 
         # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x

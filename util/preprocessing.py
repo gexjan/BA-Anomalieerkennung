@@ -39,56 +39,24 @@ def postgres_to_singleline(log_files, log_dir, data_dir):
 # zusammenhängende Ereignisse darstellen. Die Gruppierung ermöglicht eine
 # effektivere Analyse dieser zusammenhängenden Ereignisse und hilft bei der Identifizierung
 # von Mustern oder Anomalien, die innerhalb einer bestimmten Block-ID auftreten.
-def group_entries(dataset, df, anomaly_df, logger, train_data):
+def group_entries(dataset, df, anomaly_df, logger, train_data, grouping=True):
     logger.info("Grouping Log Files")
+    if grouping:
+        if dataset == 'hdfs':
+            anomaly_file_col = 'BlockId'
+            regex_pattern = re.compile(r'(blk_-?\d+)')
 
-    if dataset == 'hdfs':
-        anomaly_file_col = 'BlockId'
-        regex_pattern = re.compile(r'(blk_-?\d+)')
+            # Hinzufügen einer neuen Spalte für die extrahierte Block-ID
+            df['SeqID'] = df['Content'].apply(
+                lambda x: regex_pattern.search(x).group(0) if regex_pattern.search(x) else None)
 
-        # Hinzufügen einer neuen Spalte für die extrahierte Block-ID
-        df['SeqID'] = df['Content'].apply(
-            lambda x: regex_pattern.search(x).group(0) if regex_pattern.search(x) else None)
+            # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+            grouped = df.groupby('SeqID')['EventId'].apply(list)
 
-        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
-        grouped = df.groupby('SeqID')['EventId'].apply(list)
+            grouped = grouped.reset_index()
+            grouped.columns = ['SeqID', 'EventSequence']
 
-        grouped = grouped.reset_index()
-        grouped.columns = ['SeqID', 'EventSequence']
-
-        # Zusammenführen der DataFrames anhand der Block-ID
-        merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
-        merged_df.drop(columns=[anomaly_file_col], inplace=True)
-
-        # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
-        missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
-        if missing_labels:
-            logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
-
-        if train_data:
-            # Entfernen der anomalen Einträge
-            merged_df = merged_df[merged_df['Label'] == 'Normal']
-            # Setze alle Labels auf 'None'
-            merged_df['Label'] = 'None'
-
-    if dataset == 'postgres':
-        anomaly_file_col = 'pid'
-        regex_pattern = re.compile(r'\[(\d+)\]')
-
-        df['SeqID'] = df['PID'].apply(
-            lambda x: int(regex_pattern.search(x).group(1)) if regex_pattern.search(x) else None)
-
-        # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
-        grouped = df.groupby('SeqID')['EventId'].apply(list)
-        grouped = grouped.reset_index()
-        grouped.columns = ['SeqID', 'EventSequence']
-
-        if train_data:
-            grouped['Label'] = None
-            merged_df = grouped
-
-        else:
-        # Zusammenführen der DataFrames anhand der Block-ID
+            # Zusammenführen der DataFrames anhand der Block-ID
             merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
             merged_df.drop(columns=[anomaly_file_col], inplace=True)
 
@@ -97,15 +65,66 @@ def group_entries(dataset, df, anomaly_df, logger, train_data):
             if missing_labels:
                 logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
 
-    # Durchschnittliche Gruppenlänge + Median
-    avg_group_length = grouped['EventSequence'].apply(len).mean()
-    median_group_length = grouped['EventSequence'].apply(len).median()
+            if train_data:
+                # Entfernen der anomalen Einträge
+                merged_df = merged_df[merged_df['Label'] == 'Normal']
+                # Setze alle Labels auf 'None'
+                merged_df['Label'] = 'None'
 
-    data_type = "Training" if train_data else "Testing"
-    logger.info(
-        f"{data_type} data: Average group length: {avg_group_length}; Median group length: {median_group_length}")
+        if dataset == 'postgres':
+            anomaly_file_col = 'pid'
+            regex_pattern = re.compile(r'\[(\d+)\]')
 
-    return merged_df
+            df['SeqID'] = df['PID'].apply(
+                lambda x: int(regex_pattern.search(x).group(1)) if regex_pattern.search(x) else None)
+
+            # Gruppierung der Daten nach Block-ID und Sammeln der zugehörigen EventIDs
+            grouped = df.groupby('SeqID')['EventId'].apply(list)
+            grouped = grouped.reset_index()
+            grouped.columns = ['SeqID', 'EventSequence']
+
+            if train_data:
+                grouped['Label'] = None
+                merged_df = grouped
+
+            else:
+            # Zusammenführen der DataFrames anhand der Block-ID
+                merged_df = pd.merge(grouped, anomaly_df, left_on='SeqID', right_on=anomaly_file_col, how='left')
+                merged_df.drop(columns=[anomaly_file_col], inplace=True)
+
+                # Überprüfen auf Einträge in 'grouped' die nicht in 'anomaly_df' vorhanden sind
+                missing_labels = set(grouped['SeqID']) - set(anomaly_df[anomaly_file_col])
+                if missing_labels:
+                    logger.info(f"Einträge mit folgenden SeqIDs fehlen in anomaly_df: {missing_labels}")
+
+        # Durchschnittliche Gruppenlänge + Median
+        avg_group_length = grouped['EventSequence'].apply(len).mean()
+        median_group_length = grouped['EventSequence'].apply(len).median()
+
+        data_type = "Training" if train_data else "Testing"
+        logger.info(
+            f"{data_type} data: Average group length: {avg_group_length}; Median group length: {median_group_length}")
+
+        return merged_df
+
+    else:
+        # Erstellen eines DataFrames ohne Gruppierung
+        # SeqID wird auf 'time' gesetzt, und die EventSequence enthält alle EventIDs
+        all_events = df['EventId'].tolist()  # Sammeln aller EventIDs in eine Liste
+        no_group_df = pd.DataFrame({'SeqID': ['time'],
+                                    'EventSequence': [all_events],
+                                    'Label': [None]})
+
+        # Durchschnittliche Länge und Median der EventSequence setzen, in diesem Fall die Länge der gesamten EventList
+        avg_group_length = len(all_events)
+        median_group_length = len(all_events)  # Da es nur eine 'Gruppe' gibt, sind Durchschnitt und Median identisch
+
+        data_type = "Training" if train_data else "Testing"
+        logger.info(
+            f"{data_type} data without grouping: Total number of events: {len(all_events)}; Average group length: {avg_group_length}; Median group length: {median_group_length}")
+
+        return no_group_df
+
 
 
 # Nachfolgende Methode 'slice_hdfs' verwendet den 'Sliding Window'-Ansatz für die Vorverarbeitung von Sequenzdaten für LSTM-Modelle.

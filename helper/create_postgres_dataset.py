@@ -84,9 +84,41 @@ def find_next_free_pid_after_time(used_pids, start_time, test_df):
     next_pid = max(used_pids) + 1
     return next_pid
 
+# def generate_artificial_logs(template_list, test_df):
+#     used_pids = set(test_df['pid'].unique())
+#     artificial_logs = []
+#     start_time = test_df['datetime'].min()
+#     end_time = test_df['datetime'].max()
+#     total_duration = end_time - start_time
+#     eighty_percent_duration = total_duration * 0.999
+#     total_milliseconds_in_eighty_percent = int(eighty_percent_duration.total_seconds() * 1000)
+#
+#     for item in template_list:
+#         count, messages, generators = item
+#         for _ in range(count):
+#             random_milliseconds_within_eighty_percent = random.randint(0, total_milliseconds_in_eighty_percent)
+#             random_start_point = start_time + timedelta(microseconds=random_milliseconds_within_eighty_percent * 1000)
+#             current_pid = find_next_free_pid_after_time(used_pids, random_start_point, test_df)
+#             used_pids.add(current_pid)
+#             current_time = random_start_point
+#             for message in messages:
+#                 # Prüfe, ob Generatoren für die Nachricht vorhanden sind, und ersetze die Platzhalter
+#                 if generators:
+#                     formatted_message = message.format(*[gen() for gen in generators])
+#                 else:
+#                     formatted_message = message
+#                 log_entry = [current_time.strftime('%Y-%m-%d'), current_time.strftime('%H:%M:%S.%f')[:-3], 'CET', str(current_pid), formatted_message]
+#                 artificial_logs.append(log_entry)
+#                 remaining_time = (end_time - current_time).total_seconds() * 1000
+#                 random_additional_milliseconds = random.randint(0, int(remaining_time))
+#                 current_time += timedelta(microseconds=random_additional_milliseconds * 1000)
+#
+#     return pd.DataFrame(artificial_logs, columns=['date', 'time', 'timezone', 'pid', 'message'])
+
 def generate_artificial_logs(template_list, test_df):
     used_pids = set(test_df['pid'].unique())
     artificial_logs = []
+    anomaly_timestamps = []  # Erfassen der Timestamps von anomalen Nachrichten
     start_time = test_df['datetime'].min()
     end_time = test_df['datetime'].max()
     total_duration = end_time - start_time
@@ -94,26 +126,32 @@ def generate_artificial_logs(template_list, test_df):
     total_milliseconds_in_eighty_percent = int(eighty_percent_duration.total_seconds() * 1000)
 
     for item in template_list:
-        count, messages, generators = item
+        count, messages, generators, anomalies = item
         for _ in range(count):
             random_milliseconds_within_eighty_percent = random.randint(0, total_milliseconds_in_eighty_percent)
             random_start_point = start_time + timedelta(microseconds=random_milliseconds_within_eighty_percent * 1000)
             current_pid = find_next_free_pid_after_time(used_pids, random_start_point, test_df)
             used_pids.add(current_pid)
             current_time = random_start_point
-            for message in messages:
-                # Prüfe, ob Generatoren für die Nachricht vorhanden sind, und ersetze die Platzhalter
+            for idx, message in enumerate(messages):
                 if generators:
                     formatted_message = message.format(*[gen() for gen in generators])
                 else:
                     formatted_message = message
                 log_entry = [current_time.strftime('%Y-%m-%d'), current_time.strftime('%H:%M:%S.%f')[:-3], 'CET', str(current_pid), formatted_message]
                 artificial_logs.append(log_entry)
+                if idx in anomalies:
+                    anomaly_timestamps.append((current_time, 'Anomaly'))  # Erfassen des Timestamps und Markierung als anomal
+                else:
+                    anomaly_timestamps.append((current_time, 'Normal'))  # Erfassen des Timestamps und Markierung als normal
                 remaining_time = (end_time - current_time).total_seconds() * 1000
                 random_additional_milliseconds = random.randint(0, int(remaining_time))
                 current_time += timedelta(microseconds=random_additional_milliseconds * 1000)
 
-    return pd.DataFrame(artificial_logs, columns=['date', 'time', 'timezone', 'pid', 'message'])
+    artificial_logs_df = pd.DataFrame(artificial_logs, columns=['date', 'time', 'timezone', 'pid', 'message'])
+    anomaly_timestamps_df = pd.DataFrame(anomaly_timestamps, columns=['datetime', 'Label'])  # Erstellen eines DataFrames für die Timestamps und Labels
+    return artificial_logs_df, anomaly_timestamps_df
+
 
 
 
@@ -169,17 +207,28 @@ if __name__ == '__main__':
     test_df = filtered_log_df[filtered_log_df['pid'].isin(test_pids)].copy()
 
     # Liste der hinzuzufügenden Anomalien
+    # template_list = [
+    #     [1, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
+    #     [1, ["Starting connection", "Authorizing", "No IP"], []],
+    #     [22, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
+    # ]
+
     template_list = [
-        [1, ["Starting connection", "Authorizing", "No entry in .authorized"], []],
-        [1, ["Starting connection", "Authorizing", "No IP"], []],
-        [22, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"], [generate_random_ip]]
+        [5, ["Starting connection", "Authorizing", "No entry in .authorized"], [], [2]],
+        # [2] zeigt an, dass die dritte Nachricht anomal ist
+        [10, ["Starting connection", "Authorizing", "No IP"], [], [1]],
+        # [2] zeigt an, dass die dritte Nachricht anomal ist
+        [5, [
+            "FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"],
+         [generate_random_ip], [0]]  # [0] zeigt an, dass die erste Nachricht anomal ist
     ]
 
     test_df['datetime'] = pd.to_datetime(test_df['date'] + ' ' + test_df['time'])
     # start_time = test_df['datetime'].min()
     # end_time = test_df['datetime'].max()
 
-    artificial_logs_df = generate_artificial_logs(template_list, test_df)
+    artificial_logs_df, artificial_logs_timestamp_df = generate_artificial_logs(template_list, test_df)
+    artificial_logs_timestamp_df.to_csv('anomaly_label_time.csv', index=False)
 
     # Zusammenführen des ursprünglichen und neuen Datensatzes
     test_df_combined = pd.concat([test_df, artificial_logs_df]).sort_values(by=['datetime']).reset_index(drop=True)
