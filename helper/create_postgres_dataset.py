@@ -84,37 +84,6 @@ def find_next_free_pid_after_time(used_pids, start_time, test_df):
     next_pid = max(used_pids) + 1
     return next_pid
 
-# def generate_artificial_logs(template_list, test_df):
-#     used_pids = set(test_df['pid'].unique())
-#     artificial_logs = []
-#     start_time = test_df['datetime'].min()
-#     end_time = test_df['datetime'].max()
-#     total_duration = end_time - start_time
-#     eighty_percent_duration = total_duration * 0.999
-#     total_milliseconds_in_eighty_percent = int(eighty_percent_duration.total_seconds() * 1000)
-#
-#     for item in template_list:
-#         count, messages, generators = item
-#         for _ in range(count):
-#             random_milliseconds_within_eighty_percent = random.randint(0, total_milliseconds_in_eighty_percent)
-#             random_start_point = start_time + timedelta(microseconds=random_milliseconds_within_eighty_percent * 1000)
-#             current_pid = find_next_free_pid_after_time(used_pids, random_start_point, test_df)
-#             used_pids.add(current_pid)
-#             current_time = random_start_point
-#             for message in messages:
-#                 # Prüfe, ob Generatoren für die Nachricht vorhanden sind, und ersetze die Platzhalter
-#                 if generators:
-#                     formatted_message = message.format(*[gen() for gen in generators])
-#                 else:
-#                     formatted_message = message
-#                 log_entry = [current_time.strftime('%Y-%m-%d'), current_time.strftime('%H:%M:%S.%f')[:-3], 'CET', str(current_pid), formatted_message]
-#                 artificial_logs.append(log_entry)
-#                 remaining_time = (end_time - current_time).total_seconds() * 1000
-#                 random_additional_milliseconds = random.randint(0, int(remaining_time))
-#                 current_time += timedelta(microseconds=random_additional_milliseconds * 1000)
-#
-#     return pd.DataFrame(artificial_logs, columns=['date', 'time', 'timezone', 'pid', 'message'])
-
 def generate_artificial_logs(template_list, test_df):
     used_pids = set(test_df['pid'].unique())
     artificial_logs = []
@@ -179,7 +148,7 @@ if __name__ == '__main__':
     db_dir = 'summarized'
     log_dir = os.path.join(base_dir, db_dir)
 
-    log_file = 'postgresql029e.log'
+    log_file = 'postgresql-01.log'
     multiline_path = os.path.join(log_dir, log_file)
     print(multiline_path)
 
@@ -228,7 +197,19 @@ if __name__ == '__main__':
     # end_time = test_df['datetime'].max()
 
     artificial_logs_df, artificial_logs_timestamp_df = generate_artificial_logs(template_list, test_df)
-    artificial_logs_timestamp_df.to_csv('anomaly_label_time.csv', index=False)
+
+    # Markieren aller existierenden Einträge aus test_df als 'Normal'
+    existing_logs_df = test_df[['datetime']].copy()  # Erstellt eine Kopie der 'datetime' Spalte
+    existing_logs_df['Label'] = 'Normal'  # Fügt eine neue Spalte 'Label' mit dem Wert 'Normal' hinzu
+
+    # Führen Sie dann die Zusammenführung mit artificial_logs_timestamp_df durch, wie zuvor gezeigt
+    combined_logs_timestamp_df = pd.concat([existing_logs_df, artificial_logs_timestamp_df]).sort_values(
+        by=['datetime']).reset_index(drop=True)
+
+    # Speichern der kombinierten DataFrame in eine CSV-Datei
+    combined_logs_timestamp_df.to_csv('anomaly_label_time.csv', index=False)
+
+    # artificial_logs_timestamp_df.to_csv('anomaly_label_time.csv', index=False)
 
     # Zusammenführen des ursprünglichen und neuen Datensatzes
     test_df_combined = pd.concat([test_df, artificial_logs_df]).sort_values(by=['datetime']).reset_index(drop=True)
