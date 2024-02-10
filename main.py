@@ -75,6 +75,9 @@ if __name__ == '__main__':
     parser.add_argument('--log-dir', type=str, default=log_dir_default, help='The folder with the log-files')
     parser.add_argument('--log-file', type=str, default=log_file_default, help='The log used for training')
     parser.add_argument('--model-file', type=str, help='The name of the trained model')
+    parser.add_argument('--grouping', type=str, default='session', choices=['session', 'time'],
+                        help='Grouping of the Log-Entries. With HDFS is only session possible')
+
 
     parser.add_argument('-prepare', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('-train', action='store_true', help='Train the model')
@@ -135,7 +138,7 @@ if __name__ == '__main__':
                           anomaly_file,
                           logger,
                           True,
-                          grouping=False),
+                          args.grouping),
             'train')
         logger.info(f"{len(data_handler.get_grouped_data('train'))} sequences in train-dataset")
         print("Danach: ", data_handler.get_grouped_data(('train')))
@@ -145,7 +148,7 @@ if __name__ == '__main__':
                           anomaly_file,
                           logger,
                           True,
-                          grouping=False),
+                          args.grouping),
             'validation')
         logger.info(f"{len(data_handler.get_grouped_data('validation'))} sequences in validation-dataset")
         data_handler.set_grouped_data(
@@ -154,7 +157,7 @@ if __name__ == '__main__':
                           anomaly_file,
                           logger,
                           False,
-                          grouping=False),
+                          args.grouping),
             'eval')
         logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
 

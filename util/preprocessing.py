@@ -1,3 +1,5 @@
+import sys
+
 from logparser.Spell import LogParser as SpellParser
 from logparser.Drain import LogParser as DrainParser
 import os
@@ -39,9 +41,9 @@ def postgres_to_singleline(log_files, log_dir, data_dir):
 # zusammenhängende Ereignisse darstellen. Die Gruppierung ermöglicht eine
 # effektivere Analyse dieser zusammenhängenden Ereignisse und hilft bei der Identifizierung
 # von Mustern oder Anomalien, die innerhalb einer bestimmten Block-ID auftreten.
-def group_entries(dataset, df, anomaly_df, logger, train_data, grouping=True):
+def group_entries(dataset, df, anomaly_df, logger, train_data, grouping):
     logger.info("Grouping Log Files")
-    if grouping:
+    if grouping == 'session':
         if dataset == 'hdfs':
             anomaly_file_col = 'BlockId'
             regex_pattern = re.compile(r'(blk_-?\d+)')
@@ -107,7 +109,13 @@ def group_entries(dataset, df, anomaly_df, logger, train_data, grouping=True):
 
         return merged_df
 
-    else:
+    elif grouping == 'time':
+        if dataset == 'hdfs':
+            logger.fatal("No grouping available for HDFS")
+            sys.exit(0)
+
+        print(df[:10].to_string())
+
         # Erstellen eines DataFrames ohne Gruppierung
         # SeqID wird auf 'time' gesetzt, und die EventSequence enthält alle EventIDs
         all_events = df['EventId'].tolist()  # Sammeln aller EventIDs in eine Liste
