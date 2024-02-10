@@ -139,7 +139,7 @@ if __name__ == '__main__':
     db_dir = 'summarized'
     log_dir = os.path.join(base_dir, db_dir)
 
-    log_file = 'postgresql-01.log'
+    log_file = 'postgresql029e.log'
     multiline_path = os.path.join(log_dir, log_file)
 
     log_file_path = os.path.join(base_dir, log_file)
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     time_labels_file_path = os.path.join(base_dir, 'anomaly_label_time.csv')
 
     # 90% der Log-Einträge als Testdaten
-    test_size = 0.9
+    test_size = 0.6
 
     # 20% der Trainingsdaten als Validierungsdaten
     validation_size = 0.2
@@ -170,7 +170,7 @@ if __name__ == '__main__':
 
 
     template_list = [
-        [5, ["Starting connection", "Authorizing", "No entry in .authorized"], [], [2]],
+        [50, ["Starting connection", "Authorizing", "No entry in .authorized"], [], [2]],
         [10, ["Starting connection", "Authorizing", "No IP"], [], [1]],
         [5, [
             "FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"],

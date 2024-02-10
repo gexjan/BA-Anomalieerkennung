@@ -114,14 +114,20 @@ def group_entries(dataset, df, anomaly_df, logger, train_data, grouping):
             logger.fatal("No grouping available for HDFS")
             sys.exit(0)
 
-        print(df[:10].to_string())
+        # print(df[:10].to_string())
+
+        if train_data:
+            anomaly_labels = [None]
+        else:
+            anomaly_labels = anomaly_df['Label'].tolist()
+            print(anomaly_labels[:10])
 
         # Erstellen eines DataFrames ohne Gruppierung
         # SeqID wird auf 'time' gesetzt, und die EventSequence enthält alle EventIDs
         all_events = df['EventId'].tolist()  # Sammeln aller EventIDs in eine Liste
         no_group_df = pd.DataFrame({'SeqID': ['time'],
                                     'EventSequence': [all_events],
-                                    'Label': [None]})
+                                    'Label': [anomaly_labels]})
 
         # Durchschnittliche Länge und Median der EventSequence setzen, in diesem Fall die Länge der gesamten EventList
         avg_group_length = len(all_events)
@@ -142,13 +148,15 @@ def group_entries(dataset, df, anomaly_df, logger, train_data, grouping):
 # Die Größe des Fensters ist entscheidend, da sie bestimmt, wie viele vergangene Informationen für die Vorhersage zur Verfügung stehen.
 # Eine geeignete Fenstergröße hilft, das Gleichgewicht zwischen dem Erfassen relevanter Muster und dem Vermeiden irrelevanter Informationen zu finden.
 # Dieser Ansatz wandelt die Daten in einen reichhaltigeren Merkmalssatz um, indem er jedes Fenster effektiv zu einem Vektor von Merkmalen macht.
-def process_windowing(data, use_padding):
+def process_windowing(data, use_padding, time_grouping):
     seq_id, row, window_size = data
     sequence = row['EventSequence']
     label = row['Label']
+    print("Label: ", label[:10])
     seqlen = len(sequence)
     windows = []
 
+    # Bei time wird die Sequenzlänge nie kürzer als die window-size sein
     if use_padding and seqlen < window_size:
         padded_sequence = sequence + [1] * (window_size - seqlen) # 1 entspricht '#PAD'
         windows.append([seq_id, padded_sequence, 1, label]) # 1 entspricht '#PAD'
@@ -157,32 +165,22 @@ def process_windowing(data, use_padding):
         while (i + window_size) < seqlen:
             window_slice = sequence[i: i + window_size]
             next_element = sequence[i + window_size] if (i + window_size) < seqlen else 1 # 1 entspricht '#PAD'
-            windows.append([seq_id, window_slice, next_element, label])
+            if not time_grouping:
+                win_label = label
+            else:
+                win_label = label[i + window_size]
+            # label_win =
+            windows.append([seq_id, window_slice, next_element, win_label])
             i += 1
     return windows
 
 
-# def slice_windows(df, window_size, logger, use_padding):
-#     logger.info("Slicing windows")
-#     # Anzahl der Prozesse beim Slicen
-#     num_processes = 10
-#     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
-#     with Pool(num_processes) as pool:
-#         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
-#
-#     windows = [item for sublist in results for item in sublist]
-#     sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])
-#     train_x = sliced_windows[['SeqID', 'window', 'label']]
-#     train_y = sliced_windows[['SeqID', 'next']]
-#
-#     return train_x, train_y
-
-def slice_windows(df, window_size, logger, use_padding):
+def slice_windows(df, window_size, logger, use_padding, time_grouping=False):
     logger.info("Slicing windows")
     num_threads = 10  # Anzahl der Threads beim Slicen
     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        results = list(executor.map(lambda data: process_windowing(data, use_padding), data_splits))
+        results = list(executor.map(lambda data: process_windowing(data, use_padding, time_grouping), data_splits))
 
     windows = [item for sublist in results for item in sublist]
     sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])

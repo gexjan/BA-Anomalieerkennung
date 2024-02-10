@@ -8,17 +8,8 @@ import torch.nn.functional as F
 
 class EvaluationSequenceDataset(Dataset):
     def __init__(self, x, y):
-        # self.data = []
-        # for idx in range(len(x)):
-        #     window = x.iloc[idx]['window']
-        #     next_value = y.iloc[idx]['next']
-        #     label = x.iloc[idx]['label'] == 'Anomaly'
-        #     index = x.iloc[idx]['SeqID']
-        #     self.data.append((index, window, next_value, label))
-
         # Sicherstellen, dass 'x' und 'y' als DataFrames vorliegen
         assert isinstance(x, pd.DataFrame) and isinstance(y, pd.DataFrame), "x und y müssen Pandas DataFrames sein"
-        # Entfernen der 'SeqID' Spalte aus 'y', um Duplikate zu vermeiden
         y = y.drop(columns=['SeqID'])
 
         # Zusammenführen der DataFrames 'x' und 'y' basierend auf einem gemeinsamen Index oder Schlüssel
@@ -28,9 +19,11 @@ class EvaluationSequenceDataset(Dataset):
 
         # Konvertierung der 'label' Spalte zu einem Booleschen Wert, der True ist, wenn das Label 'Anomaly' ist
         combined['label'] = combined['label'] == 'Anomaly'
+        combined.to_csv('combined.csv')
 
         # Erstellen der 'data'-Liste durch Umwandlung des DataFrame in eine Liste von Tupeln
         self.data = list(combined[['SeqID', 'window', 'next', 'label']].itertuples(index=False, name=None))
+        print(self.data[:20])
 
     def __len__(self):
         return len(self.data)
@@ -39,10 +32,11 @@ class EvaluationSequenceDataset(Dataset):
         index, window, next_value, label = self.data[idx]
         return index, torch.tensor(window, dtype=torch.float), next_value, label
 class Evaluator:
-    def __init__(self, args, x, y, device, kwargs, logger, data_percentage):
+    def __init__(self, args, x, y, device, kwargs, logger, data_percentage, grouping=None):
         self.args = args
         self.x = x[:int(len(x) * data_percentage)]
         self.y = y[:int(len(y) * data_percentage)]
+        self.grouping = grouping
         self.logger = logger
         self.device = device
         self.kwargs = kwargs
@@ -80,35 +74,57 @@ class Evaluator:
 
     def evaluate(self, model, candidates, num_classes, use_tqdm=True):
         prediction_df = self.get_eval_df(model, use_tqdm, candidates, num_classes)
+        prediction_df.to_csv('predictions.csv')
         self.logger.info("Evaluating")
-        grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
 
         results = []
-        loop = tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False) if use_tqdm else grouped
-        for index, group_df in loop:
-            # index, group_df = group
-            label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
 
-            # Angenommen, 'predicted_values' ist eine Spalte, die Listen oder Sets enthält,
-            # und 'Next' ist eine Spalte mit den zu überprüfenden Werten.
+        if self.grouping == 'session':
+            grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
+            loop = tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False) if use_tqdm else grouped
+            for index, group_df in loop:
+                # index, group_df = group
+                label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
 
-            # Prüfen, ob 'Next' in der Liste/Set von 'predicted_values' für jede Zeile enthalten ist.
-            # Dies erzeugt eine Serie von Booleschen Werten.
-            anomalies_detected = group_df.apply(lambda row: row['Next'] not in row['Next-Predicted'], axis=1)
+                # Angenommen, 'predicted_values' ist eine Spalte, die Listen oder Sets enthält,
+                # und 'Next' ist eine Spalte mit den zu überprüfenden Werten.
 
-            # Überprüfen, ob mindestens eine Anomalie erkannt wurde
-            anomaly_detected = anomalies_detected.any()
+                # Prüfen, ob 'Next' in der Liste/Set von 'predicted_values' für jede Zeile enthalten ist.
+                # Dies erzeugt eine Serie von Booleschen Werten.
+                anomalies_detected = group_df.apply(lambda row: row['Next'] not in row['Next-Predicted'], axis=1)
 
-            if anomaly_detected:
-                if label:  # True Positive
-                    results.append((1, 0, 0, 0))  # TP, TN, FP, FN
-                else:  # False Positive
-                    results.append((0, 0, 1, 0))
-            else:
-                if label:  # False Negative
-                    results.append((0, 0, 0, 1))
-                else:  # True Negative
-                    results.append((0, 1, 0, 0))
+                # Überprüfen, ob mindestens eine Anomalie erkannt wurde
+                anomaly_detected = anomalies_detected.any()
+
+                if anomaly_detected:
+                    if label:  # True Positive
+                        results.append((1, 0, 0, 0))  # TP, TN, FP, FN
+                    else:  # False Positive
+                        results.append((0, 0, 1, 0))
+                else:
+                    if label:  # False Negative
+                        results.append((0, 0, 0, 1))
+                    else:  # True Negative
+                        results.append((0, 1, 0, 0))
+
+        elif self.grouping == 'time':
+            loop = tqdm(prediction_df.iterrows(), total=prediction_df.shape[0], desc="Evaluating",
+                        leave=False) if use_tqdm else prediction_df.iterrows()
+            for _, row in loop:
+                predicted = row['Next-Predicted']
+                label = row['Label']
+                anomaly_detected = row['Next'] not in predicted
+
+                if anomaly_detected:
+                    if label:  # True Positive
+                        results.append((1, 0, 0, 0))  # TP, TN, FP, FN
+                    else:  # False Positive
+                        results.append((0, 0, 1, 0))
+                else:
+                    if label:  # False Negative
+                        results.append((0, 0, 0, 1))
+                    else:  # True Negative
+                        results.append((0, 1, 0, 0))
 
         # Summiere die Ergebnisse
         self.TP, self.TN, self.FP, self.FN = map(sum, zip(*results))

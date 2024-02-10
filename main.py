@@ -126,12 +126,13 @@ if __name__ == '__main__':
 
         # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
         anomaly_file = data_handler.read_anomaly_file()
+        # print(anomaly_file)
 
         # Gruppieren der Einträge nach der Block-ID
         # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
         # EventSequence ist eine Liste von EventIDs
         # Wichtig: Bei den Trainingsdaten müssen alle Anomalien entfernt werden
-        print("Davor: ", data_handler.get_structured_data('train'))
+        # print("Davor: ", data_handler.get_structured_data('train'))
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('train'),
@@ -141,7 +142,7 @@ if __name__ == '__main__':
                           args.grouping),
             'train')
         logger.info(f"{len(data_handler.get_grouped_data('train'))} sequences in train-dataset")
-        print("Danach: ", data_handler.get_grouped_data(('train')))
+        # print("Danach: ", data_handler.get_grouped_data(('train')))
         data_handler.set_grouped_data(
             group_entries(args.dataset,
                           data_handler.get_structured_data('validation'),
@@ -180,6 +181,7 @@ if __name__ == '__main__':
             ),
             'train'
         )
+        # print("Transformiert: ", data_handler.get_transformed_data(('train')))
 
 
         data_handler.set_transformed_data(
@@ -204,13 +206,19 @@ if __name__ == '__main__':
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
         x_train, y_train = slice_windows(data_handler.get_transformed_data('train'), args.window_size, logger, use_padding=False)
         data_handler.set_prepared_data(x_train, y_train, 'train')
+        print("Sliced X: ", x_train)
+        print("Sliced y: ", y_train)
+
 
         x_valid, y_valid = slice_windows(data_handler.get_transformed_data('validation'), args.window_size, logger, use_padding=False)
         data_handler.set_prepared_data(x_valid, y_valid, 'validation')
 
-        x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True)
-        data_handler.set_prepared_data(x_eval, y_eval, 'eval')
+        print(data_handler.get_transformed_data('eval')[:10].to_string())
 
+        x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True, time_grouping=True)
+        data_handler.set_prepared_data(x_eval, y_eval, 'eval')
+        print("Sliced X: ", x_eval)
+        print("Sliced y: ", y_eval)
 
 
         # Speichern des Datahandler-Objekts in einer Datei
@@ -318,7 +326,7 @@ if __name__ == '__main__':
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
 
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0)
+        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 1.0, args.grouping)
         f1 = evaluator.evaluate(model, args.candidates, num_classes)
         evaluator.print_summary()
 

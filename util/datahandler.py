@@ -55,7 +55,12 @@ class DataHandler:
         del self.struct_eval_df
 
     def read_anomaly_file(self):
-        anomaly_file_path = os.path.join(self.args.log_dir, self.args.anomaly_file)
+        if self.args.grouping == 'time':
+            file_name = self.args.anomaly_file.split('.')[0]
+            file_name += '_time.csv'
+            anomaly_file_path = os.path.join(self.args.log_dir, file_name)
+        else:
+            anomaly_file_path = os.path.join(self.args.log_dir, self.args.anomaly_file)
         return pd.read_csv(anomaly_file_path)
 
     def get_structured_data(self, data_type):
