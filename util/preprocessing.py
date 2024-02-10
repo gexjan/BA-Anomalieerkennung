@@ -4,6 +4,7 @@ import os
 import re
 import pandas as pd
 from multiprocessing import Pool
+from concurrent.futures import ThreadPoolExecutor
 
 
 # Methode zum Umwandeln mehrzeiliger Postgres-Logeinträge in einzeilige Einträge
@@ -134,13 +135,27 @@ def process_windowing(data, use_padding):
     return windows
 
 
+# def slice_windows(df, window_size, logger, use_padding):
+#     logger.info("Slicing windows")
+#     # Anzahl der Prozesse beim Slicen
+#     num_processes = 10
+#     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
+#     with Pool(num_processes) as pool:
+#         results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
+#
+#     windows = [item for sublist in results for item in sublist]
+#     sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])
+#     train_x = sliced_windows[['SeqID', 'window', 'label']]
+#     train_y = sliced_windows[['SeqID', 'next']]
+#
+#     return train_x, train_y
+
 def slice_windows(df, window_size, logger, use_padding):
     logger.info("Slicing windows")
-    # Anzahl der Prozesse beim Slicen
-    num_processes = 10
+    num_threads = 10  # Anzahl der Threads beim Slicen
     data_splits = [(index, row, window_size) for index, row in df.iterrows()]
-    with Pool(num_processes) as pool:
-        results = pool.starmap(process_windowing, [(data, use_padding) for data in data_splits])
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        results = list(executor.map(lambda data: process_windowing(data, use_padding), data_splits))
 
     windows = [item for sublist in results for item in sublist]
     sliced_windows = pd.DataFrame(windows, columns=['SeqID', 'window', 'next', 'label'])
@@ -148,6 +163,9 @@ def slice_windows(df, window_size, logger, use_padding):
     train_y = sliced_windows[['SeqID', 'next']]
 
     return train_x, train_y
+
+
+
 
 def create_label_mapping(df1, df2, logger):
     logger.info("Create label mapping")

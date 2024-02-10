@@ -94,7 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-layers', type=int, default='2', help='Number of hidden layers')
     parser.add_argument('--hidden-size', type=int, default='64', help='Size of the hidden layers')
     parser.add_argument('--epochs', type=int, default='30', help='Number of training epochs')
-    parser.add_argument('--learning-rate', type=float, default='0.001', help='Learning rate')
+    parser.add_argument('--learning-rate', type=float, default='0.01', help='Learning rate')
     parser.add_argument('--calculate-f', action='store_true', help='Pre-Process the Logs')
     parser.add_argument('--hptrials', type=int, default='10', help='Hyperparameter-tuning trials')
     parser.add_argument('--validation-file', type=str, default=validation_file_default,
@@ -152,6 +152,9 @@ if __name__ == '__main__':
                           False),
             'eval')
         logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
+
+        # Löschen der Variablen der eingelesenen Dateien
+        data_handler.del_structured_files()
 
         # Umwandeln von EventIDs zu numerischen IDs
         # label_mapping enthält die Zuordnung der EventIDs zu den numerischen IDs
@@ -257,8 +260,11 @@ if __name__ == '__main__':
         valid_x, valid_y = data_handler.get_prepared_data('validation')
         valid_loader = get_dataloader(valid_x, valid_y, args.batch_size, kwargs)
 
-        eval_x, eval_y = data_handler.get_prepared_data('eval')
-        evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 0.01)
+        if args.calculate_f:
+            eval_x, eval_y = data_handler.get_prepared_data('eval')
+            evaluator = Evaluator(args, eval_x, eval_y, device, kwargs, logger, 0.01)
+        else:
+            evaluator = None
 
         return_val_loss = False
 

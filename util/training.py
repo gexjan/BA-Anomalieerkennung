@@ -124,7 +124,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     criterion = nn.CrossEntropyLoss()
     # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.5)
     epoch_losses = []
     valid_losses = []
     f1_scores = []

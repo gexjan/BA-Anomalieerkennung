@@ -31,12 +31,13 @@ print(len(anomale_block_ids))
 
 normale_block_ids, normale_block_train_ids = train_test_split(normale_block_ids, test_size=anzahl_normale_train, random_state=42)
 
-normale_block_ids, normale_block_validation_ids = train_test_split(normale_block_ids, test_size=anzahl_normale_validation, random_state=42)
+# normale_block_ids, normale_block_validation_ids = train_test_split(normale_block_ids, test_size=anzahl_normale_validation, random_state=42)
 
 anomaly_block_ids, entfernte_anomaly_ids = train_test_split(anomale_block_ids, test_size=anzahl_anomale_verwerfen, random_state=42)
 
 
 test_ids = normale_block_ids + anomaly_block_ids
+test_ids, anzahl_normale_validation = train_test_split(test_ids, test_size=anzahl_normale_validation)
 
 block_id_regex = re.compile(r'(blk_-?\d+)')
 

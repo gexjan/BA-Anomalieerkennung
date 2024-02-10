@@ -49,6 +49,11 @@ class DataHandler:
         self.struct_validation_df = pd.read_csv(structured_validation_file_path)
         self.struct_eval_df = pd.read_csv(structured_eval_file_path)
 
+    def del_structured_files(self):
+        del self.struct_train_df
+        del self.struct_validation_df
+        del self.struct_eval_df
+
     def read_anomaly_file(self):
         anomaly_file_path = os.path.join(self.args.log_dir, self.args.anomaly_file)
         return pd.read_csv(anomaly_file_path)
