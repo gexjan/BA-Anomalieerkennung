@@ -55,18 +55,21 @@ class Evaluator:
                 _, window_size = windows.shape
                 # seq = torch.tensor(windows, dtype=torch.long).view(-1, window_size).to(self.device)
                 seq = windows.clone().detach().to(dtype=torch.long, device=self.device).view(-1, window_size)
-                seq = F.one_hot(seq, num_classes=num_classes).float()
-                outputs = model(seq)
+                seq_one_hot = F.one_hot(seq, num_classes=num_classes).float()
+                outputs = model(seq_one_hot)
                 probabilities = torch.softmax(outputs, dim=1)
                 top_vals, top_indices = torch.topk(probabilities, candidates)
+                # print(f"TOp Indices: {top_indices}, top_vals: {top_vals}")
 
                 for batch_idx, (index, window, next_value, label) in enumerate(
                         zip(index, windows, next_values, labels)):
                     predicted = top_indices[batch_idx].tolist()
                     results.append({
                         'Index': index.item(),
+                        'Sequence': window.tolist(),
                         'Next': next_value.item(),
-                        'Next-Predicted': predicted,
+                        'TopVals': top_vals[batch_idx].tolist(),
+                        'TopIndices': predicted,
                         'Label': label.item()
                     })
 
@@ -74,7 +77,7 @@ class Evaluator:
 
     def evaluate(self, model, candidates, num_classes, use_tqdm=True):
         prediction_df = self.get_eval_df(model, use_tqdm, candidates, num_classes)
-        prediction_df.to_csv('predictions.csv')
+        prediction_df.to_csv('predictions.csv', index=False)  # Speichern ohne Index
         self.logger.info("Evaluating")
 
         results = []

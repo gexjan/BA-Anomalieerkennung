@@ -151,7 +151,7 @@ if __name__ == '__main__':
     time_labels_file_path = os.path.join(base_dir, 'anomaly_label_time.csv')
 
     # 90% der Log-Einträge als Testdaten
-    test_size = 0.6
+    test_size = 0.98
 
     # 20% der Trainingsdaten als Validierungsdaten
     validation_size = 0.2

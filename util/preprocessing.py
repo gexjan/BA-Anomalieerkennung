@@ -110,9 +110,9 @@ def group_entries(dataset, df, anomaly_df, logger, train_data, grouping):
         return merged_df
 
     elif grouping == 'time':
-        if dataset == 'hdfs':
-            logger.fatal("No grouping available for HDFS")
-            sys.exit(0)
+        # if dataset == 'hdfs':
+        #     logger.fatal("No grouping available for HDFS")
+        #     sys.exit(0)
 
         # print(df[:10].to_string())
 
@@ -152,7 +152,6 @@ def process_windowing(data, use_padding, time_grouping):
     seq_id, row, window_size = data
     sequence = row['EventSequence']
     label = row['Label']
-    print("Label: ", label[:10])
     seqlen = len(sequence)
     windows = []
 
@@ -165,11 +164,10 @@ def process_windowing(data, use_padding, time_grouping):
         while (i + window_size) < seqlen:
             window_slice = sequence[i: i + window_size]
             next_element = sequence[i + window_size] if (i + window_size) < seqlen else 1 # 1 entspricht '#PAD'
-            if not time_grouping:
-                win_label = label
-            else:
+            if time_grouping:
                 win_label = label[i + window_size]
-            # label_win =
+            else:
+                win_label = label
             windows.append([seq_id, window_slice, next_element, win_label])
             i += 1
     return windows

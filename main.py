@@ -18,6 +18,11 @@ import plotly.graph_objects as go
 from util.datahandler import DataHandler
 import sys
 from util.evaluation import Evaluator
+from collections import Counter
+
+
+import plotly.express as px
+
 
 from util.training import get_dataloader
 from datetime import timedelta
@@ -125,8 +130,8 @@ if __name__ == '__main__':
         data_handler.read_structured_files()
 
         # Einlesen der Label-Datei. Diese enthält die Labels zu den Sequenzen
-        anomaly_file = data_handler.read_anomaly_file()
-        # print(anomaly_file)
+        # anomaly_file = data_handler.read_anomaly_file()
+        anomaly_file = None
 
         # Gruppieren der Einträge nach der Block-ID
         # grouped_hdfs enthält die Spalten BlockID, EventSequence und Label
@@ -142,6 +147,7 @@ if __name__ == '__main__':
                           args.grouping),
             'train')
         logger.info(f"{len(data_handler.get_grouped_data('train'))} sequences in train-dataset")
+        print((data_handler.get_grouped_data('train')))
         # print("Danach: ", data_handler.get_grouped_data(('train')))
         data_handler.set_grouped_data(
             group_entries(args.dataset,
@@ -152,15 +158,15 @@ if __name__ == '__main__':
                           args.grouping),
             'validation')
         logger.info(f"{len(data_handler.get_grouped_data('validation'))} sequences in validation-dataset")
-        data_handler.set_grouped_data(
-            group_entries(args.dataset,
-                          data_handler.get_structured_data('eval'),
-                          anomaly_file,
-                          logger,
-                          False,
-                          args.grouping),
-            'eval')
-        logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
+        # data_handler.set_grouped_data(
+        #     group_entries(args.dataset,
+        #                   data_handler.get_structured_data('eval'),
+        #                   anomaly_file,
+        #                   logger,
+        #                   False,
+        #                   args.grouping),
+        #     'eval')
+        # logger.info(f"{len(data_handler.get_grouped_data('eval'))} sequences in evaluation-dataset")
 
         # Löschen der Variablen der eingelesenen Dateien
         data_handler.del_structured_files()
@@ -173,6 +179,8 @@ if __name__ == '__main__':
         )
 
 
+
+
         data_handler.set_transformed_data(
             transform_event_ids(
                 data_handler.get_grouped_data('train'),
@@ -182,7 +190,37 @@ if __name__ == '__main__':
             'train'
         )
         # print("Transformiert: ", data_handler.get_transformed_data(('train')))
+        eventsequence = data_handler.get_transformed_data('train').iloc[0]['EventSequence']
+        # Zählen der Häufigkeit jedes Ereignisses in der Sequenz
+        event_counts = Counter(eventsequence)
 
+        # Umwandeln des Counters in ein DataFrame für eine einfachere Handhabung
+        df = pd.DataFrame(list(event_counts.items()), columns=['EventID', 'Count']).sort_values(by='EventID')
+
+        # Erstellen eines Bar-Plots mit Plotly
+        fig = go.Figure(data=[go.Bar(x=df['EventID'], y=df['Count'], marker_color='blue')])
+
+        # Hinzufügen von Titel und Achsenbeschriftungen
+        fig.update_layout(title='Event Frequency in Sequence',
+                          xaxis_title='Event ID',
+                          yaxis_title='Frequency',
+                          template='plotly_white')
+
+        # Anzeigen des Plots
+        fig.show()
+
+        # Zähle, wie oft jede EventSequence vorkommt
+        # sequence_counts = data_handler.get_transformed_data('train')['EventSequence'].apply(lambda x: str(x)).value_counts()
+        #
+        # # Erstelle das Balkendiagramm mit Plotly
+        # fig = px.bar(
+        #     x=sequence_counts.index,
+        #     y=sequence_counts.values,
+        #     labels={'x': 'EventSequenz Nummer', 'y': 'Häufigkeit'},
+        #     title='Verteilung der EventSequenzen'
+        # )
+        # fig.update_layout(xaxis_title="EventSequenz Nummer", yaxis_title="Häufigkeit")
+        # fig.show()
 
         data_handler.set_transformed_data(
             transform_event_ids(
@@ -193,32 +231,51 @@ if __name__ == '__main__':
             'validation'
         )
 
-        data_handler.set_transformed_data(
-            transform_event_ids(
-                data_handler.get_grouped_data('eval'),
-                data_handler.get_label_mapping(),
-                logger
-            ),
-            'eval'
-        )
+        # data_handler.set_transformed_data(
+        #     transform_event_ids(
+        #         data_handler.get_grouped_data('eval'),
+        #         data_handler.get_label_mapping(),
+        #         logger
+        #     ),
+        #     'eval'
+        # )
 
         # Bilden von Fenstern der Größe window_size innerhalb der EventSequenze von grouped_hdfs
         # Die Fenster stehen in train_x. train_y enthält jeweils den nächsten Eintrag nach dem Fenster von train_x
         x_train, y_train = slice_windows(data_handler.get_transformed_data('train'), args.window_size, logger, use_padding=False)
         data_handler.set_prepared_data(x_train, y_train, 'train')
-        print("Sliced X: ", x_train)
-        print("Sliced y: ", y_train)
 
+        # print(x_train)
+
+        # window_counts = x_train['window'].apply(lambda x: str(x)).value_counts()
+        # print("Counts: ", window_counts)
+        #
+        # # Erstelle ein DataFrame für das Plotting
+        # plot_data = pd.DataFrame({
+        #     'Window': window_counts.index,
+        #     'Frequency': window_counts.values
+        # })
+        #
+        # # Erstelle das Balkendiagramm mit Plotly
+        # fig = px.bar(
+        #     plot_data,
+        #     x='Window',
+        #     y='Frequency',
+        #     labels={'Window': 'Fenster', 'Frequency': 'Häufigkeit'},
+        #     title='Verteilung der Fensterhäufigkeiten'
+        # )
+        #
+        # # Aktualisiere Layout für eine bessere Darstellung
+        # fig.update_layout(xaxis_title="Fenster", yaxis_title="Häufigkeit", xaxis={'categoryorder': 'total descending'})
+        #
+        # # Zeige das Diagramm an
+        # fig.show()
 
         x_valid, y_valid = slice_windows(data_handler.get_transformed_data('validation'), args.window_size, logger, use_padding=False)
         data_handler.set_prepared_data(x_valid, y_valid, 'validation')
 
-        print(data_handler.get_transformed_data('eval')[:10].to_string())
-
-        x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True, time_grouping=True)
-        data_handler.set_prepared_data(x_eval, y_eval, 'eval')
-        print("Sliced X: ", x_eval)
-        print("Sliced y: ", y_eval)
+        # x_eval, y_eval = slice_windows(data_handler.get_transformed_data('eval'), args.window_size, logger, use_padding=True, time_grouping=args.grouping == 'time')
+        # data_handler.set_prepared_data(x_eval, y_eval, 'eval')
 
 
         # Speichern des Datahandler-Objekts in einer Datei
@@ -260,8 +317,9 @@ if __name__ == '__main__':
             evaluator = None
 
         return_val_loss = False
-
+        print(data_handler.get_label_mapping())
         num_classes = len(data_handler.get_label_mapping())
+        print(num_classes)
         # num_classes = 30
         if args.model == 'deeplog':
             input_size = args.input_size
@@ -322,6 +380,7 @@ if __name__ == '__main__':
             model = load_model(args.data_dir, device, args.model_file, logger)
 
         num_classes = len(data_handler.get_label_mapping())
+        # num_classes = 17
         # num_classes = 30
 
         eval_x, eval_y = data_handler.get_prepared_data('eval')
@@ -352,12 +411,12 @@ if __name__ == '__main__':
                 data_handler = pickle.load(f)
 
         def objective(trial, device, train_loader, valid_loader, logger, change_window_size, data_handler, num_classes):
-            hidden_size = trial.suggest_int('hidden_size', 20, 200)
-            learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
+            hidden_size = trial.suggest_int('hidden_size', 10, 300)
+            learning_rate = trial.suggest_float('learning_rate', 1e-6, 1e-1, log=True)
             # Es kann nicht mehr Kandidaten als Klassen geben
             candidates = trial.suggest_int('candidates', 3, min(num_classes, 15))
-            num_layers = trial.suggest_int('layers', 1, 3)
-            batch_size = trial.suggest_int('batch_size', 8, 2048)
+            num_layers = trial.suggest_int('layers', 1, 5)
+            batch_size = trial.suggest_int('batch_size', 32, 2048)
 
             input_size = args.input_size
             epochs = args.epochs
@@ -380,6 +439,7 @@ if __name__ == '__main__':
                 window_size = args.window_size
 
 
+
             model = LSTM(hidden_size, num_layers, num_classes).to(device)
             trained_model, valid_loss = training.train(
                 model,
@@ -390,7 +450,7 @@ if __name__ == '__main__':
                 logger,
                 device,
                 num_classes,
-                valid_loader,
+                valid_loader=valid_loader,
                 return_val_loss=True
             )
 

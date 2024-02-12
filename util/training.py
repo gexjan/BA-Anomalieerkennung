@@ -19,6 +19,8 @@ from util import evaluation
 
 def get_dataloader(train_x, train_y, batch_size, kwargs):
     # X ist die Sequenz, Y der nächste Eintrag nach der Sequenz
+    train_x.to_csv('train_x.csv')
+    train_y.to_csv('train_y.csv')
     X = torch.tensor(train_x['window'].tolist(), dtype=torch.long)
     Y = torch.tensor(train_y['next'].values)
 
@@ -120,11 +122,12 @@ def validate(model, valid_loader, criterion, device, window_size, num_classes):
     return valid_loss / len(valid_loader)
 
 
-def train(model, train_loader, learning_rate, epochs, window_size, logger, device, num_classes, candidates, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
+def train(model, train_loader, learning_rate, epochs, window_size, logger, device, num_classes, candidates=None, valid_loader=None, return_val_loss=False, evaluator=None, calculate_f = False):
     criterion = nn.CrossEntropyLoss()
     # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.5)
+    # optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.2)
     epoch_losses = []
     valid_losses = []
     f1_scores = []
@@ -154,6 +157,8 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 # Die Eingabesequenz wird zunächst geklont, von früheren Berechnungen losgelöst, in die richtige Form gebracht
                 # und dann auf das richtige Gerät (CPU oder GPU) verschoben
                 seq = seq.clone().detach().view(-1, window_size).to(device)
+                # print(seq)
+                # print(seq.size)
                 seq = F.one_hot(seq, num_classes=num_classes).float()
                 output = model(seq)
 
@@ -197,6 +202,7 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
                 save_metrics_to_csv(epoch_losses, f1_scores)
                 plot_loss_and_f1(epoch_losses, f1_scores)
     finally:
+        # pass
         plot_loss_and_f1(epoch_losses, f1_scores)
         plot_loss(epoch_losses, valid_losses)
         plot_loss_valid_loss_f1(epoch_losses, valid_losses, f1_scores)

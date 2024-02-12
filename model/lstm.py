@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 #         return out
 
 
-# One-Hot-Encoding
+# # One-Hot-Encoding
 class LSTM(nn.Module):
     def __init__(self, hidden_size, num_layers, num_classes):
         super(LSTM, self).__init__()
@@ -35,3 +35,5 @@ class LSTM(nn.Module):
         out, _ = self.lstm(input, (h0, c0))
         out = self.fc(out[:, -1, :])
         return out
+
+
