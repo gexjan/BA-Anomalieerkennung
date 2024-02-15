@@ -8,22 +8,16 @@ import torch.nn.functional as F
 
 class EvaluationSequenceDataset(Dataset):
     def __init__(self, x, y):
-        # Sicherstellen, dass 'x' und 'y' als DataFrames vorliegen
         assert isinstance(x, pd.DataFrame) and isinstance(y, pd.DataFrame), "x und y müssen Pandas DataFrames sein"
         y = y.drop(columns=['SeqID'])
 
-        # Zusammenführen der DataFrames 'x' und 'y' basierend auf einem gemeinsamen Index oder Schlüssel
-        # Hier nehmen wir an, dass 'x' und 'y' die gleiche Länge haben und in der gleichen Reihenfolge sind
-        # Wenn es einen gemeinsamen Schlüssel gibt, verwenden Sie stattdessen pd.merge()
         combined = pd.concat([x, y], axis=1)
 
-        # Konvertierung der 'label' Spalte zu einem Booleschen Wert, der True ist, wenn das Label 'Anomaly' ist
+        # Konvertierung der 'label' Spalte zu einem bool, der True ist, wenn das Label Anomaly ist
         combined['label'] = combined['label'] == 'Anomaly'
         combined.to_csv('combined.csv')
 
-        # Erstellen der 'data'-Liste durch Umwandlung des DataFrame in eine Liste von Tupeln
         self.data = list(combined[['SeqID', 'window', 'next', 'label']].itertuples(index=False, name=None))
-        print(self.data[:20])
 
     def __len__(self):
         return len(self.data)
@@ -86,15 +80,9 @@ class Evaluator:
             grouped = list(prediction_df.groupby('Index'))  # Konvertiere in eine Liste für tqdm
             loop = tqdm(grouped, total=len(grouped), desc="Evaluating", leave=False) if use_tqdm else grouped
             for index, group_df in loop:
-                # index, group_df = group
                 label = group_df['Label'].iloc[0]  # Angenommen, das Label ist für den ganzen Index gleich
 
-                # Angenommen, 'predicted_values' ist eine Spalte, die Listen oder Sets enthält,
-                # und 'Next' ist eine Spalte mit den zu überprüfenden Werten.
-
-                # Prüfen, ob 'Next' in der Liste/Set von 'predicted_values' für jede Zeile enthalten ist.
-                # Dies erzeugt eine Serie von Booleschen Werten.
-                anomalies_detected = group_df.apply(lambda row: row['Next'] not in row['Next-Predicted'], axis=1)
+                anomalies_detected = group_df.apply(lambda row: row['Next'] not in row['TopIndices'], axis=1)
 
                 # Überprüfen, ob mindestens eine Anomalie erkannt wurde
                 anomaly_detected = anomalies_detected.any()
@@ -114,7 +102,7 @@ class Evaluator:
             loop = tqdm(prediction_df.iterrows(), total=prediction_df.shape[0], desc="Evaluating",
                         leave=False) if use_tqdm else prediction_df.iterrows()
             for _, row in loop:
-                predicted = row['Next-Predicted']
+                predicted = row['TopIndices']
                 label = row['Label']
                 anomaly_detected = row['Next'] not in predicted
 
@@ -129,7 +117,6 @@ class Evaluator:
                     else:  # True Negative
                         results.append((0, 1, 0, 0))
 
-        # Summiere die Ergebnisse
         self.TP, self.TN, self.FP, self.FN = map(sum, zip(*results))
         return self.calculate_f1(self.TP, self.TN, self.FP, self.FN)
 

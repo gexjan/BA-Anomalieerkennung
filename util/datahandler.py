@@ -130,8 +130,29 @@ class PostgresDataHandler(DataHandler):
 
     def get_parse_params(self):
         log_format = '<Date> <Time> <Timeformat> <PID> <Content>'
-        rex = []
-        tau = 0.5  # Spell
+        rex = [
+
+            # "DETAIL:  parameters:\s*(.*)",  # SQL-Parameters
+            # "statement:\s*(.*)",  # SQL-Statements,
+
+            # "LOG:  execute\s*(.*)",  # SQL-Statements,
+            # "STATEMENT: \s*(.*)",  # SQL-Statements,
+            # "CONTEXT: \s*(.*)",  # SQL-Statements,
+            "LOG:  duration:\s*(.*)",  # SQL-Statements,
+            "\[?\w+\]?\@\[?\w+\]?",  # Benutzer@Datenbank
+            #
+
+            "DETAIL:  \s*(.*)",  # SQL-Statements,
+            # "duration:\s*(.*)" # SQL-Query duration
+            # "parameters:\s*(.*)" # SQL-Query parameters
+            # "LOG:\s*execute\s*(.*)", # Ausgeführte SQL-Funktionen
+
+            # "(?<=user=)[^\s]*", # user=xxx
+            # "(?<=database=)[^\s]*", # database=xxx
+            # "(?<=automatic vacuum of table\s).*", # Automatic vacuum of table,
+            # "\d{4}-\d{2}-\d{2}" # Datum im Format yyyy-mm-dd
+               ]
+        tau = 0.6  # Spell
         st = 0.5  # Drain
         depth = 4  # Drain
         return log_format, rex, tau, st, depth

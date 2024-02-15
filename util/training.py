@@ -25,7 +25,7 @@ def get_dataloader(train_x, train_y, batch_size, kwargs):
     Y = torch.tensor(train_y['next'].values)
 
     dataset = TensorDataset(X, Y)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True, **kwargs)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, **kwargs)
 
 
 def save_metrics_to_csv(epoch_losses, f1_scores, loss_file='./data/loss_per_epoch.csv', f1_file='./data/f1_per_epoch.csv'):
@@ -126,16 +126,21 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
     criterion = nn.CrossEntropyLoss()
     # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     # optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate) # , momentum=0.9
     # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.2)
     epoch_losses = []
     valid_losses = []
     f1_scores = []
 
-    logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}, window_size={window_size}")
+    # logger.info(f"Starting DeepLog training with lr={learning_rate}, epochs={epochs}, layers={model.num_layers}, hidden_size={model.hidden_size}, window_size={window_size}")
     # writer = SummaryWriter(log_dir='log/' + log)
 
     total_step = len(train_loader)
+
+    # Early Stopping Variablen
+    best_valid_loss = float('inf')
+    epochs_no_improve = 0
+    early_stop_patience = 3
 
     try:
         for epoch in range(epochs):
@@ -151,16 +156,15 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
 
 
             # Iteration über alle Bachtes im Dataloader
-            # for step, (seq, label) in enumerate(train_loader):
             for step, (seq, label) in enumerate(train_loader):
                 ### Forward pass: Berechnung der Modellvorhersagen
                 # Die Eingabesequenz wird zunächst geklont, von früheren Berechnungen losgelöst, in die richtige Form gebracht
                 # und dann auf das richtige Gerät (CPU oder GPU) verschoben
                 seq = seq.clone().detach().view(-1, window_size).to(device)
-                # print(seq)
-                # print(seq.size)
                 seq = F.one_hot(seq, num_classes=num_classes).float()
+                print("Input: ", seq)
                 output = model(seq)
+                print("Output: ", output)
 
                 # Berechnung des Verlustes zwischen den Vorhersagen des Modells und den tatsächlichen Labels
                 loss = criterion(output, label.to(device))
@@ -191,8 +195,20 @@ def train(model, train_loader, learning_rate, epochs, window_size, logger, devic
             epoch_losses.append(epoch_loss)
 
             if valid_loader:
+                # logger.info("Start")
                 valid_loss = validate(model, valid_loader, criterion, device, window_size, num_classes)
                 valid_losses.append(valid_loss)
+                # logger.info("End")
+
+                # if valid_loss < best_valid_loss:
+                #     best_valid_loss = valid_loss
+                #     epochs_no_improve = 0
+                # else:
+                #     epochs_no_improve += 1
+                #     if epochs_no_improve >= early_stop_patience:
+                #         logger.info("Early stopping triggered")
+                #         break
+
             logger.info('Epoch [{}/{}], train_loss: {:.4f}, valid_loss: {:.4f} time: {}'.format(epoch + 1, epochs, train_loss / total_step, valid_loss, epoch_duration))
 
             if calculate_f:

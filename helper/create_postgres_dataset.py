@@ -19,15 +19,6 @@ def multiline_to_singleline(input_file, output_file):
         if current_entry:
             output_file.write(current_entry.strip() + '\n')
 
-def singleline_to_multiline(input_file, output_file):
-    with open(input_file, 'r') as infile, open(output_file, 'w') as outfile:
-        for line in infile:
-            parts = line.strip().split(' | ')
-            outfile.write(parts[0])
-            for part in parts[1:]:
-                outfile.write('\n\t' + part)
-            outfile.write('\n')
-
 def read_and_parse_log(file_path):
     columns = ['date', 'time', 'timezone', 'pid', 'message']
     data = []
@@ -42,6 +33,15 @@ def read_and_parse_log(file_path):
     return df
 
 
+def generate_random_session_time():
+    hours = 0
+    minutes = 0
+    seconds = random.randint(0, 9)
+    milliseconds = random.randint(0, 999)
+
+    return f"{00}:{00}:{seconds:02}.{milliseconds:03}"
+
+
 def generate_random_ip():
     return '.'.join(str(random.randint(0, 255)) for _ in range(4))
 
@@ -52,9 +52,31 @@ def generate_random_port():
 # Entfernt die ganze Gruppe, wenn eine der nachfolgenden Nachrichten vorkommt
 def filter_groups(df):
     unwanted_messages = [
-        "skipping special file",
-        "FATAL could not receive data from WAL stream server closed the connection unexpectedly",
-        "FATAL:  could not connect to the primary server: could not connect to server: Connection refused"
+        "no pg_hba.conf entry for host",
+        "using stale statistics instead of current ones because stats collector is not responding",
+        "could not send data to WAL stream SSL",
+        "database system was interrupted while in recovery",
+        "invalid record length at",
+        "could not connect to the primary server",
+        "WARNING:  skipping special file",
+        "FATAL:  could not receive data from WAL stream",
+        "LOG:  invalid resource manager ID",
+        "FATAL:  database",
+        "ERROR:  function",
+        "ERROR:  cannot execute",
+        "ERROR:  could not access file",
+        "ERROR:  unrecognized configuration parameter",
+        "FATAL:  terminating",
+        "could not send end-of-streaming message",
+        "could not connect to the primary server",
+        "ERROR:  canceling statement due",
+        "ERROR:  GROUP BY",
+        "ERROR:  syntax error at or near",
+        "FATAL:  connection to client lost",
+        "ERROR:  deadlock detected",
+        "current transaction is aborted, commands ignored until end of transaction block",
+        "there is already a transaction in progress",
+        "could not receive data from client: Connection reset by peer"
     ]
 
     def is_unwanted_group(group):
@@ -107,7 +129,7 @@ def generate_artificial_logs(template_list, test_df):
                     anomaly_timestamps.append((current_time, 'Anomaly'))
                 else:
                     anomaly_timestamps.append((current_time, 'Normal'))
-                remaining_time = (end_time - current_time).total_seconds() * 1000
+                remaining_time = (end_time - current_time).total_seconds() * 1000 * 0.005 # Verwenden des Faktors 0.005, um den Abstand zwischen den einzelnen Log-Meldungen zu reduzieren
                 random_additional_milliseconds = random.randint(0, int(remaining_time))
                 current_time += timedelta(microseconds=random_additional_milliseconds * 1000)
 
@@ -139,7 +161,12 @@ if __name__ == '__main__':
     db_dir = 'summarized'
     log_dir = os.path.join(base_dir, db_dir)
 
-    log_file = 'postgresql029e.log'
+    # 033e zu simpel, nur 5 Keys
+    # 0102 hat 5 keys zu häufig vorkommen, und 5-10 weitere die jeweils max 5 mal vorkommen
+    # 004 hat 5 Keys
+    # 029e hat 5 Keys
+
+    log_file = 'postgresql0102.log'
     multiline_path = os.path.join(log_dir, log_file)
 
     log_file_path = os.path.join(base_dir, log_file)
@@ -151,7 +178,7 @@ if __name__ == '__main__':
     time_labels_file_path = os.path.join(base_dir, 'anomaly_label_time.csv')
 
     # 90% der Log-Einträge als Testdaten
-    test_size = 0.98
+    test_size = 0.8
 
     # 20% der Trainingsdaten als Validierungsdaten
     validation_size = 0.2
@@ -159,22 +186,29 @@ if __name__ == '__main__':
 
     multiline_to_singleline(multiline_path, log_file_path)
     log_df = read_and_parse_log(log_file_path)
+    print(log_df)
 
 
     filtered_log_df, removed_pids = filter_groups(log_df)
+    print(filtered_log_df)
     unique_pids = filtered_log_df['pid'].unique()
-    train_pids, test_pids = train_test_split(unique_pids, test_size=test_size, random_state=42)
+    print(unique_pids)
+    # train_pids, test_pids = train_test_split(unique_pids, test_size=test_size, random_state=42)
+    train_size = 1 - test_size
+
+    # Aufteilung der Daten in Trainings- und Testdatensatz basierend auf dem berechneten train_size
+    train_pids = unique_pids[:int(len(unique_pids) * train_size)]
+    test_pids = unique_pids[-int(len(unique_pids) * test_size):]
 
     train_df = filtered_log_df[filtered_log_df['pid'].isin(train_pids)].copy()
     test_df = filtered_log_df[filtered_log_df['pid'].isin(test_pids)].copy()
 
 
     template_list = [
-        [50, ["Starting connection", "Authorizing", "No entry in .authorized"], [], [2]],
-        [10, ["Starting connection", "Authorizing", "No IP"], [], [1]],
-        [5, [
-            "FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"],
-         [generate_random_ip], [0]]  # [0] zeigt an, dass die erste Nachricht anomal ist
+        [20,
+         ["[unknown]@[unknown] LOG:  connection received: host={} port={}", "mydbuser@linuxbox FATAL:  no pg_hba.conf entry for host \"{}\", user \"mydbuser\", database \"mydbuser\", SSL on"],[generate_random_ip, generate_random_port], [1]],
+        [30, ["FATAL: could not connect to the primary server: could not connect to server: Connection refused | Is the server running on host \"{}\" and accepting | TCP/IP connections on port 5432?"],[generate_random_ip], [0]],  # [0] zeigt an, dass die erste Nachricht anomal ist
+        [30, ["[unknown]@[unknown] LOG:  connection received: host=[local]", "postgres@[unknown] LOG:  replication connection authorized: user=postgres application_name=backup", "postgres@[unknown] WARNING:  skipping special file \"./log\"", "postgres@[unknown] LOG:  disconnection: session time: 0:00:05.371 user=postgres database= host=[local]"],[generate_random_session_time], [2]],
     ]
 
     test_df['datetime'] = pd.to_datetime(test_df['date'] + ' ' + test_df['time'])
@@ -209,7 +243,10 @@ if __name__ == '__main__':
     labels_df.to_csv(labels_file_path, index=False)
     write_log_entries(test_df_combined, test_log_file_path)
 
-    train_df, validation_df = train_test_split(train_df, test_size=validation_size, random_state=42)
+    # train_df, validation_df = train_test_split(train_df, test_size=validation_size, random_state=42)
+    train_size = 1 - validation_size
+    train_df = train_df[:int(len(train_df) * train_size)]
+    validation_df = train_df[int(len(train_df) * train_size):]
     write_log_entries(train_df, train_log_file_path)
     write_log_entries(validation_df, validation_log_file_path)
 
