@@ -1,48 +1,49 @@
 # BA Anomalieerkennung Datenbank-Logdateien mit maschinellem Lernen
+Der Code in diesem Repository stellt die Implementierung der zugehörigen Bachelorarbeit dar.
 
 ## Installation
-Das Skript benötigt diverse Pakete diese können installiert werden mit 
+Das Skript benötigt verschiedene Pakete. Diese können mit folgendem Befehl installiert werden:
 ```bash
 conda env xxxxx
 ```
 
 ## Datensätze
 Das Projekt unterstützt zwei Datensätze:
-1. **PostgreSQL:** Hierbei werden die Daten der Datenbanksysteme verwendet. Es gibt die zwei Dateien `postgres_train.log` und `postgres_test.log`
-2. **HDFS:** Dieser Datensatz wird zur Evaluation des Projekts bzw. zum Vergleich mit anderen Lösungen genutzt. Es gibt die Dateien `hdfs_train.log` und `hdfs_test.log`. Es ist zudem möglich mittels `create_hdfs_dataset.py` Skript aus dem ordner `helper` die zwei Datei aus der ursprünglichen Log-Datei zu erzeugen. Dann kann bei der Größe variiert werden.
+1. **PostgreSQL:** Hierbei werden die Daten des Datenbanksystems verwendet. Es gibt die beiden Dateien `postgres_train.log` und `postgres_test.log`.
+2. **HDFS:** Dieser Datensatz wird zur Evaluation des Projekts bzw. zum Vergleich mit anderen Lösungen genutzt. Es gibt die Dateien `hdfs_train.log` und `hdfs_test.log`. Außerdem ist es möglich, mit dem Skript `create_hdfs_dataset.py` aus dem Ordner `helper` die beiden Dateien aus der ursprünglichen Log-Datei zu erzeugen und dabei die Größe zu variieren.
 
 ## Nutzung
-Es stehen diverse Modi zur Ausführung bereit:
+Es stehen verschiedene Ausführungsmodi zur Verfügung:
 
 ### Prepare
-Dieser Schritt umfasst das Pre-Processing. Es werden die Log-Dateien eingelesen und Fenster gebildet, die für das Training verwendet werden können. Befehl:
+Dieser Schritt umfasst das Preprocessing. Die Log-Dateien werden eingelesen und Fenster gebildet, die für das Training verwendet werden können. Befehl:
 ```bash
 python main.py -prepare
 ```
-Es ist auch möglich das erneute Parsen zu verhindern, sofern dies bereits ausgeführt wurde
+Es ist außerdem möglich, das erneute Parsen zu verhindern, sofern dieser Schritt bereits ausgeführt wurde:
 ```bash
 python main.py -prepare --noparse
 ```
-Weiterhin ist es möglich die Pfade der Log-Dateien und -Ordner anzugeben, eine vollständige übersicht über alle Argumente kann ausgegeben werden mit 
+Zusätzlich können die Pfade der Log-Dateien und -Ordner angegeben werden. Eine vollständige Übersicht über alle Argumente kann so ausgegeben werden:
 ```bash
 python main.py --help
 ```
 
 ### Train
 Dieser Schritt setzt die Ausführung von `prepare` voraus.
-Das training lässt sich ausführen mit:
+Das Training lässt sich wie folgt ausführen:
 ```bash
 python main.py -train
 ```
 Die Ausgabe ist ein Model im Ordner `data`.
-Es können weitere Argumente angegeben werden, siehe `--help`
+Weitere Argumente sind über `--help` einsehbar.
 
-Es gibt die Möglichkeit bereits während des Trainings den F1-Score nach jeder Epoche zu berechnen. Das erhöht jedoch sehr stark die benötigte Zeit:
+Es gibt die Möglichkeit, bereits während des Trainings den F1-Score nach jeder Epoche zu berechnen. Das erhöht jedoch die benötigte Zeit deutlich:
 ```bash
-python main -train --calculate-f
+python main.py -train --calculate-f
 ```
 
-Beim Training werden diverse Dateien erzeugt und im `data` Ordner ausgegeben:
+Beim Training werden verschiedene Dateien erzeugt und im Ordner `data` ausgegeben:
 - `loss_per_epoch.csv`
 - `f1_per_epoch.csv` sofern `--calculate-f` verwendet wird
 - `training_loss.png`
@@ -50,20 +51,20 @@ Beim Training werden diverse Dateien erzeugt und im `data` Ordner ausgegeben:
 - `combined_loss_f1.png`
 
 ### Evaluate
-Im Evaluate-Modus wird das trainierte Modell evaluiert und ein F1-Score sowie Precision und Recall ausgegeben:
+Im Evaluate-Modus wird das trainierte Modell ausgewertet und es werden F1-Score, Precision und Recall ausgegeben:
 ```bash
 python main.py -evaluate
 ```
 Zur Evaluation werden die Datensätze `hdfs_test.log` bzw. `hdfs_train.log` verwendet.
 
 ### Hptune
-Hptune ist das Hyperparameter-Tuning. Dieses basiert auf dem Framework `optuna:
+Hptune steht für Hyperparameter-Tuning. Dieses basiert auf dem Framework `optuna`:
 ```bash
 python main.py -hptune --hptrials xx
 ```
-Mittels `--hptrials` lässt sich die Anzahl der Ausführungen angeben. Optuna nutzt standardmäßig zur Wahl der Hyperparameter die bays`sche Optimierung.
+Mit `--hptrials` lässt sich die Anzahl der Durchläufe festlegen. Optuna nutzt standardmäßig bayessche Optimierung zur Wahl der Hyperparameter.
 
-Beim Hyperparameter-Tuning werden diverse Dateien erzeugt und im Ordner `data` ausgegeben:
+Beim Hyperparameter-Tuning werden verschiedene Dateien erzeugt und im Ordner `data` ausgegeben:
 - `study_results.csv`
 - `optimization_history.png`
 - `param_importances.png`
@@ -74,9 +75,9 @@ Beim Hyperparameter-Tuning werden diverse Dateien erzeugt und im Ordner `data` a
 TBA
 
 ### Zusammenfassung
-Für ein vollständigen lauf unter Nutzung der standardmäßigen Dateien:
+Für einen vollständigen Lauf unter Nutzung der Standarddateien:
 ```bash
 python main.py -prepare -train -predict
 ```
 
-Das erzeugte Modell kann dann im Ordner data mit dem Dateinamen `lstm_model.pth` gefunden werden.
+Das erzeugte Modell kann anschließend im Ordner `data` unter dem Dateinamen `lstm_model.pth` gefunden werden.
